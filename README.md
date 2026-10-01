@@ -54,6 +54,7 @@ The capacity from the AI to create and edit files in the device is the last capa
 |---|---|
 | Presentation (CLI) | Command registry |
 | Application | Facade (`KnowledgeService`) |
-| Domain/Infra | Strategy (chunker/embedder/store), Decorator (cache/timeout), Adapter (Claude SDK) |
+| Domain/Infra | Strategy (chunker/embedder/store), Decorator (cache/timeout), Adapter (Anthropic SDK) |
 
 If you must cut scope further, keep **Command + Facade + Strategy** and add Decorator once you actually measure the latency.
+
