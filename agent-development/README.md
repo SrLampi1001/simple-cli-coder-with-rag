@@ -162,7 +162,9 @@ Stop and ask the user (do not guess) if:
 
 These are deliberate, tracked mismatches. They are **not** licenses to improvise. Resolve each with the user before the affected deliverable, then update both documents so they agree.
 
-**No discrepancies are currently tracked.** The previously-listed items have been folded back into the plan:
+**No discrepancies are currently tracked beyond the one below.**
+
+- **Provider switch (DO-00 / DO-02).** The three LLM providers used by the project are **NVIDIA**, **Mistral**, and **MiniMax** (minimax.io) — Anthropic is no longer used. Resolution: `.env.example` now carries `NVIDIA_API_KEY=`, `MISTRAL_API_KEY=`, `MINIMAX_API_KEY=` (no real values); per-provider model defaults and Anthropic-SDK compatibility / `base_url` for each provider are determined by the web-search step that opens DO-02's `workflow.md`, with findings captured in the commit body in a `provider-research:` block. The previously-listed items have been folded back into the plan:
 
 - `coder --reset` (`dev-tools.md` §7) is now defined in DO-01: it wipes the local data dir (DB + session JSON files) under `platformdirs.user_data_dir` after an interactive `y/N` prompt, default `N`. The single source of truth for those file paths is `infrastructure/local_paths.LocalPaths` (consumed by `--reset` and DO-07's DB default).
 - The "run retrieval concurrently with prompt/LLM preparation" latency tip (`README.md` + `dev-tools.md` §9) is now a measured budget in DO-09: `test_recall_latency_under_threshold` pins end-to-end recall at < 100 ms. If the test fails, the documented resolution is to introduce a separate `LLMCallExecutor` and overlap the LLM SDK call with recall (DO-09 workflow step 10).

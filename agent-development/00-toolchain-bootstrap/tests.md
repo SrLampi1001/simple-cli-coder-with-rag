@@ -44,9 +44,9 @@ Each test runs the corresponding tool as a subprocess and asserts exit code 0.
 ### `tests/test_env_example.py`
 
 - `test_env_example_exists` — `.env.example` is present.
-- `test_env_example_has_anthropic_key` — `.env.example` contains the line `ANTHROPIC_API_KEY=`.
-- `test_env_example_has_no_real_secret` — every value in `.env.example` is either empty or a known non-secret default (`claude-haiku-4-5`, `claude-sonnet-4-5`). A simple substring check is enough.
-- `test_env_example_does_not_override_actual_env` — instantiating `pydantic_settings.BaseSettings` with `env_file=".env.example"` (without a real `.env` present) yields empty `ANTHROPIC_API_KEY` and the documented defaults for the other two. (This is a soft test; the real `Settings` class is created in DO-02.)
+- `test_env_example_has_provider_keys` — `.env.example` contains the lines `NVIDIA_API_KEY=`, `MISTRAL_API_KEY=`, `MINIMAX_API_KEY=`.
+- `test_env_example_has_no_real_secret` — every value in `.env.example` is empty. A simple substring check is enough.
+- `test_env_example_does_not_override_actual_env` — instantiating `pydantic_settings.BaseSettings` with `env_file=".env.example"` (without a real `.env` present) yields empty values for all three provider keys. (This is a soft test; the real `Settings` class is created in DO-02.)
 
 ## Why these tests
 

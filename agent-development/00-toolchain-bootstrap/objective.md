@@ -18,7 +18,7 @@ The development environment is fully configured, version-pinned, and enforcing. 
 - [ ] `[tool.importlinter]` configured with the `layered-architecture` contract from `docs/development-tools.md` §3.
 - [ ] `.pre-commit-config.yaml` runs `ruff check --fix`, `ruff format`, `mypy`, and `lint-imports` on every commit.
 - [ ] `.gitignore` covers (at minimum): `.venv/`, `__pycache__/`, `*.py[cod]`, `.env`, `.env.*` with `!.env.example` exception, `*.sqlite`, `*.sqlite-journal`, `dist/`, `build/`, `*.egg-info/`, `.pytest_cache/`, `.mypy_cache/`, `.ruff_cache/`, `htmlcov/`, `coverage.xml`, `.DS_Store`, `Thumbs.db`, `.vscode/`, `.idea/`.
-- [ ] `.env.example` is committed with `ANTHROPIC_API_KEY=`, `COMPACTOR_MODEL=claude-haiku-4-5`, `CHAT_MODEL=claude-sonnet-4-5` (no real values).
+- [ ] `.env.example` is committed with `NVIDIA_API_KEY=`, `MISTRAL_API_KEY=`, `MINIMAX_API_KEY=` (no real values). Per-provider model defaults and the Anthropic-SDK compatibility / `base_url` for each provider are decided in DO-02.
 - [ ] `src/simple_cli_coder_with_rag/` package exists with empty subpackages: `presentation/`, `application/`, `infrastructure/`, `domain/`. Each contains `__init__.py`.
 - [ ] `tests/` exists at repo root with `__init__.py`, an empty `conftest.py`, and the tests in `tests.md`.
 - [ ] `src/simple_cli_coder_with_rag/cli.py` contains a placeholder `def main() -> None: print("coder")` so the script entry point resolves.

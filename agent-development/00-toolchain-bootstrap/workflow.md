@@ -42,10 +42,11 @@ If any version has moved within the same minor, update `pyproject.toml` and add 
 
 6. **Write `.env.example`** with exactly:
    ```
-   ANTHROPIC_API_KEY=
-   COMPACTOR_MODEL=claude-haiku-4-5
-   CHAT_MODEL=claude-sonnet-4-5
+   NVIDIA_API_KEY=
+   MISTRAL_API_KEY=
+   MINIMAX_API_KEY=
    ```
+   (Per-provider model defaults and the Anthropic-SDK compatibility / `base_url` for each provider are decided in DO-02 — DO-00 ships just the three key names, with empty values.)
 
 7. **Create the package skeleton:**
    - `src/simple_cli_coder_with_rag/__init__.py` (empty, single line `__all__: list[str] = []` is fine)
