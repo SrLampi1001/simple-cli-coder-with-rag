@@ -2,11 +2,11 @@
 
 ## Goal
 
-Recall runs automatically before every chat prompt (excluding slash commands). The trivial-request gate skips retrieval for short prompts. Retrieval is bounded by the `TimeoutRetriever` decorator (which uses the shared `RetrievalExecutor`), so it never blocks the prompt for long; true overlap with prompt preparation is **not** implemented in v1 (recall is awaited before chat) and is deferred. Top-k is 3; a similarity threshold filters out weak matches. This completes the fifth README bullet: *"A prompt triggers semantic search and retrieves the important context."*
+Recall runs automatically before every chat prompt (excluding slash commands). The trivial-request gate skips retrieval for short prompts. Retrieval is bounded by the `TimeoutRetriever` decorator (which uses the shared `RetrievalExecutor`), so it never blocks the prompt for long; true overlap with prompt preparation is **not** implemented in v1 (recall is awaited before chat) and is deferred. Top-k is 3; a similarity threshold filters out weak matches. This completes the fifth OBJECTIVES bullet: *"A prompt triggers semantic search and retrieves the important context."*
 
 ## Source of truth
 
-- `README.md` — "A prompt triggers semantic search and retrieves the important context" + latency tips: skip trivial requests, top-k=3, threshold, concurrent retrieval.
+- `OBJECTIVES.md` — "A prompt triggers semantic search and retrieves the important context" + latency tips: skip trivial requests, top-k=3, threshold, concurrent retrieval.
 - `docs/development-tools.md` §9 (concurrency), §5 (concurrency, threshold, top-k).
 
 ## Acceptance criteria
@@ -45,7 +45,7 @@ pre-commit run --all-files
 ## Out of scope
 
 - CachedRetriever (deferred per dev-tools.md §12).
-- Re-ranking (the README says "No reranking needed").
+- Re-ranking (the OBJECTIVES says "No reranking needed").
 
 ## Depends on
 

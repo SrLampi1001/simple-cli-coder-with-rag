@@ -90,7 +90,7 @@ If `fastembed` has moved across a minor, update `pyproject.toml` and add a `bump
     - composition root builds the embedder and assigns to AppState; does not block
       on warm-up.
 
-    Satisfies README bullet 3: 'The embedding model works'."
+    Satisfies OBJECTIVES bullet 3: 'The embedding model works'."
     ```
     **Note:** The above message is a template. If the embedder Protocol gained/lost methods, if the warm-up strategy differs, if the model or its download handling changed, or if the import-linter contract was scoped differently — update the commit body to reflect what actually landed.
 

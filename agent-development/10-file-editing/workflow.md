@@ -129,11 +129,11 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
       LLM as text rather than re-raised.
     - Settings.editor_root (Path.cwd by default), editor_max_tool_rounds (1).
 
-    Satisfies README bullet 6: 'The AI agent can edit files'."
+    Satisfies OBJECTIVES bullet 6: 'The AI agent can edit files'."
     ```
     **Note:** The above message is a template. If the tool schema changed, if the sandbox rules were tightened/loosened, if `_execute_tool` handles more/fewer exceptions, if the tool loop cap differs, or if the message models changed shape — update the commit body to match the actual implementation.
 
-13. **Post-flight.** `git status` clean. **This is the final deliverable.** After this commit, the README's six delivery objectives are all satisfied. The REPL works, `/learn` writes JSON, embeddings work, vectors are stored, semantic search runs before chat, and the agent can edit files.
+13. **Post-flight.** `git status` clean. **This is the final deliverable.** After this commit, the OBJECTIVES's six delivery objectives are all satisfied. The REPL works, `/learn` writes JSON, embeddings work, vectors are stored, semantic search runs before chat, and the agent can edit files.
 
 ## Failure modes
 

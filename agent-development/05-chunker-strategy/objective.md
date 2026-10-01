@@ -6,7 +6,7 @@ A `Chunker` Protocol with a default `FixedSizeChunker` and a `SemanticChunker` a
 
 ## Source of truth
 
-- `README.md` — Strategy pattern (chunker).
+- `OBJECTIVES.md` — Strategy pattern (chunker).
 - `docs/development-tools.md` §5 (RAG quality mostly tuning — Strategy gives cheap experimentation).
 
 ## Acceptance criteria

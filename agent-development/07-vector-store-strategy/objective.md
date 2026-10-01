@@ -2,11 +2,11 @@
 
 ## Goal
 
-A `VectorStore` Protocol with two implementations: `SqliteVecStore` (default, uses `sqlite-vec`) and `NumpyBruteForceStore` (fallback, used when `enable_load_extension` is unavailable). The store takes chunks + vectors, persists them, and supports cosine-similarity top-k queries. The `/learn` pipeline now ends at the store. This completes the fourth README bullet: *"The JSON file is stored into a vectorial database."*
+A `VectorStore` Protocol with two implementations: `SqliteVecStore` (default, uses `sqlite-vec`) and `NumpyBruteForceStore` (fallback, used when `enable_load_extension` is unavailable). The store takes chunks + vectors, persists them, and supports cosine-similarity top-k queries. The `/learn` pipeline now ends at the store. This completes the fourth OBJECTIVES bullet: *"The JSON file is stored into a vectorial database."*
 
 ## Source of truth
 
-- `README.md` — "The JSON file is stored into a vectorial database" + Strategy pattern (vector store).
+- `OBJECTIVES.md` — "The JSON file is stored into a vectorial database" + Strategy pattern (vector store).
 - `docs/development-tools.md` §4 (sqlite-vec schema, cosine metric, `+text` aux column, idempotent upsert, startup check, thread safety, fallback).
 
 ## Acceptance criteria

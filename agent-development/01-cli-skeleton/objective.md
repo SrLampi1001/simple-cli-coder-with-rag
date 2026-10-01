@@ -6,7 +6,7 @@ The interactive REPL boots, accepts user input, parses slash commands via a `Com
 
 ## Source of truth
 
-- `README.md` — Command pattern, presentation layer.
+- `OBJECTIVES.md` — Command pattern, presentation layer.
 - `docs/development-tools.md` §3 (architectural layers), §7 (CLI surface: `prompt_toolkit` + `argparse`).
 
 ## Acceptance criteria

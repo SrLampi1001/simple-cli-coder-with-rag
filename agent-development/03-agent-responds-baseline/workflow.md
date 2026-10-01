@@ -63,7 +63,7 @@ Not required. The `LLMClient` Protocol from DO-02 is stable; no new dependencies
       continues to next prompt.
     - composition root in cli.py builds KnowledgeService and wires AppState.
 
-    Satisfies README bullet 1: 'The CLI works and the agents answer'."
+    Satisfies OBJECTIVES bullet 1: 'The CLI works and the agents answer'."
     ```
     **Note:** The above message is a template. Edit to match actual implementation. If the history cap changed, if error handling differs, if `build_chat_messages` signature changed, or if any stubs were implemented differently — update the commit body accordingly.
 

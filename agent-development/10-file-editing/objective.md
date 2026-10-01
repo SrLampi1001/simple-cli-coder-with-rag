@@ -2,11 +2,11 @@
 
 ## Goal
 
-The agent can read and edit files in the working directory (and below) using the Anthropic SDK's tool-use API. Edits are sandboxed to a configurable allow-list of paths and cannot escape via path traversal. The agent decides when to use the tool based on the user's prompt. This completes the sixth README bullet: *"The AI agent can edit files."*
+The agent can read and edit files in the working directory (and below) using the Anthropic SDK's tool-use API. Edits are sandboxed to a configurable allow-list of paths and cannot escape via path traversal. The agent decides when to use the tool based on the user's prompt. This completes the sixth OBJECTIVES bullet: *"The AI agent can edit files."*
 
 ## Source of truth
 
-- `README.md` — "The AI agent can edit files" + Adapter pattern (Anthropic SDK tool use).
+- `OBJECTIVES.md` — "The AI agent can edit files" + Adapter pattern (Anthropic SDK tool use).
 - `docs/development-tools.md` §6 (Anthropic SDK `complete_with_tools` is the seam).
 
 ## Acceptance criteria

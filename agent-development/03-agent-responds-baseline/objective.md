@@ -2,11 +2,11 @@
 
 ## Goal
 
-The REPL accepts non-slash input, sends it to the LLM, and prints the response. Slash commands continue to work alongside chat input. This completes the first README bullet: *"The CLI works and the agents answer."*
+The REPL accepts non-slash input, sends it to the LLM, and prints the response. Slash commands continue to work alongside chat input. This completes the first OBJECTIVES bullet: *"The CLI works and the agents answer."*
 
 ## Source of truth
 
-- `README.md` — "The CLI works and the agents answer" + Facade pattern.
+- `OBJECTIVES.md` — "The CLI works and the agents answer" + Facade pattern.
 - `docs/development-tools.md` §6 (LLM), §9 (concurrency model — but concurrency is for RAG retrieval, **not** needed here).
 
 ## Acceptance criteria

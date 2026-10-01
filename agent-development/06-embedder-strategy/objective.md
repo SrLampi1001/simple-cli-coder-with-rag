@@ -2,11 +2,11 @@
 
 ## Goal
 
-An `Embedder` Protocol with a `FastembedEmbedder` implementation that loads `BAAI/bge-small-en-v1.5` (384-dim), caches it under `platformdirs.user_cache_dir`, supports `embed_query` (with the BGE instruction prefix via `fastembed`'s `query_embed`) and `embed_passages`, and warm-starts on a daemon thread so the first chat is not blocked. This completes the third README bullet: *"The embedding model works."*
+An `Embedder` Protocol with a `FastembedEmbedder` implementation that loads `BAAI/bge-small-en-v1.5` (384-dim), caches it under `platformdirs.user_cache_dir`, supports `embed_query` (with the BGE instruction prefix via `fastembed`'s `query_embed`) and `embed_passages`, and warm-starts on a daemon thread so the first chat is not blocked. This completes the third OBJECTIVES bullet: *"The embedding model works."*
 
 ## Source of truth
 
-- `README.md` — "The embedding model works" + Strategy pattern (embedder).
+- `OBJECTIVES.md` — "The embedding model works" + Strategy pattern (embedder).
 - `docs/development-tools.md` §5 (fastembed, BGE model, cache dir, two-method interface, warm-up, first-run UX, known limitation: English-only).
 
 ## Acceptance criteria

@@ -38,10 +38,13 @@ class Settings(BaseSettings):
     default_provider: Provider = "nvidia"
 
     # Per-provider model defaults. Override via NVIDIA_MODEL, MISTRAL_MODEL,
-    # MINIMAX_MODEL in .env. Defaults chosen during the web-search step
-    # documented in the DO-02 commit body.
-    nvidia_model: str = "meta/llama-3.1-70b-instruct"
-    mistral_model: str = "mistral-large-latest"
+    # MINIMAX_MODEL in .env. Defaults chosen during the DO-03 real-API
+    # smoke test: the previous defaults (``meta/llama-3.1-70b-instruct`` /
+    # ``mistral-large-latest``) return HTTP 410 Gone / HTTP 403 (tier not
+    # allowed) from the providers on the test account. The current defaults
+    # were verified to respond correctly to a chat completion call.
+    nvidia_model: str = "meta/llama-3.2-11b-vision-instruct"
+    mistral_model: str = "mistral-code-latest"
     minimax_model: str = "MiniMax-M3"
 
     # Optional per-provider base URL. ``None`` means "use the adapter's

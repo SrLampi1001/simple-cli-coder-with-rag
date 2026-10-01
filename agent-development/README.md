@@ -1,6 +1,6 @@
 # agent-development/
 
-This folder is the **implementation plan** for *Simple CLI code assistant with RAG*. It is the only document an AI agent needs to start working — together with `../README.md` (what to build and why) and `../docs/development-tools.md` (with what).
+This folder is the **implementation plan** for *Simple CLI code assistant with RAG*. It is the only document an AI agent needs to start working — together with `../OBJECTIVES.md` (what to build and why) and `../docs/development-tools.md` (with what).
 
 ## How to read this folder
 
@@ -17,7 +17,7 @@ This folder is the **implementation plan** for *Simple CLI code assistant with R
 
 | Question | Source of truth |
 |---|---|
-| What to build, design patterns, high-level goals | `../README.md` |
+| What to build, design patterns, high-level goals | `../OBJECTIVES.md` |
 | Tool choice, library version, env requirement, schema snippet, fallback | `../docs/development-tools.md` |
 | Deliverable order, contracts, commit rules, subagent delegation | this folder |
 
@@ -27,7 +27,7 @@ If a conflict ever appears between this plan and `docs/development-tools.md`: **
 
 Deliverables are numbered and ordered by dependency. They must be completed in order. Each one ends in exactly one conventional commit.
 
-| # | Deliverable | Maps to README bullet |
+| # | Deliverable | Maps to OBJECTIVES bullet |
 |---|---|---|
 | [00](./00-toolchain-bootstrap/) | Toolchain bootstrap (env, gates everything) | (env) |
 | [01](./01-cli-skeleton/) | REPL + command registry (`/help`, `/exit`, `/clear`, `/version`) | (foundation) |
@@ -167,7 +167,7 @@ These are deliberate, tracked mismatches. They are **not** licenses to improvise
 - **Provider switch (DO-00 / DO-02).** The three LLM providers used by the project are **NVIDIA**, **Mistral**, and **MiniMax** (minimax.io) — Anthropic is no longer used. Resolution: `.env.example` now carries `NVIDIA_API_KEY=`, `MISTRAL_API_KEY=`, `MINIMAX_API_KEY=` (no real values); per-provider model defaults and Anthropic-SDK compatibility / `base_url` for each provider are determined by the web-search step that opens DO-02's `workflow.md`, with findings captured in the commit body in a `provider-research:` block. The previously-listed items have been folded back into the plan:
 
 - `coder --reset` (`dev-tools.md` §7) is now defined in DO-01: it wipes the local data dir (DB + session JSON files) under `platformdirs.user_data_dir` after an interactive `y/N` prompt, default `N`. The single source of truth for those file paths is `infrastructure/local_paths.LocalPaths` (consumed by `--reset` and DO-07's DB default).
-- The "run retrieval concurrently with prompt/LLM preparation" latency tip (`README.md` + `dev-tools.md` §9) is now a measured budget in DO-09: `test_recall_latency_under_threshold` pins end-to-end recall at < 100 ms. If the test fails, the documented resolution is to introduce a separate `LLMCallExecutor` and overlap the LLM SDK call with recall (DO-09 workflow step 10).
+- The "run retrieval concurrently with prompt/LLM preparation" latency tip (`OBJECTIVES.md` + `dev-tools.md` §9) is now a measured budget in DO-09: `test_recall_latency_under_threshold` pins end-to-end recall at < 100 ms. If the test fails, the documented resolution is to introduce a separate `LLMCallExecutor` and overlap the LLM SDK call with recall (DO-09 workflow step 10).
 - The `RetrievalExecutor` scope is now pinned by an architectural contract in DO-08: `RetrievalExecutor` is retrieval-only; LLM-bound concurrency (if ever added) must use a separate executor.
 - The DO-02 ↔ DO-10 message-union change has been applied: DO-02's `test_message_union_validation` uses a genuinely unknown role (`"junior"`), and DO-10 adds `tests/domain/test_messages.py` with `test_tool_result_message_has_tool_role`, `test_assistant_message_carries_tool_calls`, and `test_message_union_accepts_tool_result`.
 

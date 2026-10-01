@@ -47,6 +47,6 @@ Uses `pytest-mock` to patch `LLMClient`.
 
 ## Why these tests
 
-- The chat path is the first README bullet. These tests are the contract that bullet is satisfied.
+- The chat path is the first OBJECTIVES bullet. These tests are the contract that bullet is satisfied.
 - The history-cap test prevents an unbounded-context DoS in long sessions.
 - The `LLMError` swallow test pins the user-visible error UX without leaking the stack trace.

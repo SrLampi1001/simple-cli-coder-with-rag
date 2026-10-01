@@ -2,11 +2,11 @@
 
 ## Goal
 
-The `/learn` slash command reads the current session, compacts it via the LLM into a structured `CompactedSession`, and writes it to disk as JSON. The session is persisted as append-only `.jsonl` during the REPL run. This completes the second README bullet: *"The command creates the JSON file."*
+The `/learn` slash command reads the current session, compacts it via the LLM into a structured `CompactedSession`, and writes it to disk as JSON. The session is persisted as append-only `.jsonl` during the REPL run. This completes the second OBJECTIVES bullet: *"The command creates the JSON file."*
 
 ## Source of truth
 
-- `README.md` — "The command creates the JSON file" + compactor pipeline.
+- `OBJECTIVES.md` — "The command creates the JSON file" + compactor pipeline.
 - `docs/development-tools.md` §6 (LLM compaction model is a setting, long-session strategy), §11 (testing).
 
 ## Acceptance criteria

@@ -56,7 +56,7 @@ Not required.
    - Pass to `KnowledgeService` (constructor takes `coordinator` instead of `retriever`).
 
 10. **Run the gate.** All exit 0. **`test_recall_latency_under_threshold` is part of the gate** — its 100 ms assertion is the UX budget for recall. If it fails:
-    - **Stop and report to the user.** Recall latency is not negligible and the README latency tip ("Run retrieval concurrently while you prepare the rest of the request") has been regressed.
+    - **Stop and report to the user.** Recall latency is not negligible and the OBJECTIVES latency tip ("Run retrieval concurrently while you prepare the rest of the request") has been regressed.
     - **Resolution path:** implement overlap with the LLM call. Sketch:
       1. Introduce `LLMCallExecutor(max_workers=1)` (a separate executor — `RetrievalExecutor` is scoped to retrieval only, see DO-08 contracts).
       2. In `KnowledgeService.chat`, `llm_future = llm_call_executor.submit(self.llm.complete_with_tools, prepped_messages, ...)` **before** awaiting recall.
@@ -101,7 +101,7 @@ Not required.
       by test_recall_latency_under_threshold. If the test fails, overlap the
       LLM call with recall (LLMCallExecutor, sketched in workflow.md step 10).
 
-    Satisfies README bullet 5: 'A prompt triggers semantic search and retrieves
+    Satisfies OBJECTIVES bullet 5: 'A prompt triggers semantic search and retrieves
     the important context'. True concurrency with the LLM call is deferred and
     is the documented resolution if the latency budget is exceeded."
     ```

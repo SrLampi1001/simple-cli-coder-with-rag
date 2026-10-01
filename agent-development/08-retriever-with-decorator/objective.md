@@ -6,7 +6,7 @@ A `Retriever` Protocol with `BaseRetriever` (calls `Embedder.embed_query` + `Vec
 
 ## Source of truth
 
-- `README.md` — Decorator pattern (`Retriever → CachedRetriever → TimeoutRetriever`). Cache is deferred (dev-tools.md §12); only timeout is implemented now.
+- `OBJECTIVES.md` — Decorator pattern (`Retriever → CachedRetriever → TimeoutRetriever`). Cache is deferred (dev-tools.md §12); only timeout is implemented now.
 - `docs/development-tools.md` §9 (concurrency model: `ThreadPoolExecutor(max_workers=2)`; daemon warm-up; shutdown with `cancel_futures=True`).
 
 ## Acceptance criteria

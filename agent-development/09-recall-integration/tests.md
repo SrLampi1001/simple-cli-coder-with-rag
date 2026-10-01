@@ -58,6 +58,6 @@ tests/presentation/
 ## Why these tests
 
 - The trivial-gate boundary tests pin the inclusive `<=` semantics, which is easy to off-by-one.
-- The threshold test pins the "strong matches only" rule from the README latency tips.
+- The threshold test pins the "strong matches only" rule from the OBJECTIVES latency tips.
 - The REPL integration test pins that recall runs before chat and degrades to "no memories" without blocking the prompt.
-- **`test_recall_latency_under_threshold` is the gate's UX contract.** It is not a perf micro-benchmark — it exists to flag the case where recall latency is large enough that a user feels a pause before the LLM reply. 100 ms is below human perception for a CLI; anything materially above it (≥ a few hundred ms) means DO-09 has regressed vs. the README latency tip and must implement LLM-call overlap.
+- **`test_recall_latency_under_threshold` is the gate's UX contract.** It is not a perf micro-benchmark — it exists to flag the case where recall latency is large enough that a user feels a pause before the LLM reply. 100 ms is below human perception for a CLI; anything materially above it (≥ a few hundred ms) means DO-09 has regressed vs. the OBJECTIVES latency tip and must implement LLM-call overlap.

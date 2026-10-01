@@ -112,7 +112,7 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
     - composition root falls back to numpy when SqliteVecStore init raises.
     - KnowledgeService.learn: chunks -> embed -> upsert.
 
-    Satisfies README bullet 4: 'The JSON file is stored into a vectorial database'."
+    Satisfies OBJECTIVES bullet 4: 'The JSON file is stored into a vectorial database'."
     ```
     **Note:** The above message is a template. If the schema differs from dev-tools.md §4, if the similarity normalization changed, if fallback detection was implemented differently, or if `KnowledgeService` constructor signature evolved — update the commit body to match the actual code.
 

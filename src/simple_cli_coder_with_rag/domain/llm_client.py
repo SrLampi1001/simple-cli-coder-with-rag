@@ -1,6 +1,6 @@
 """Project-owned ``LLMClient`` Protocol and ``LLMError``.
 
-The Adapter pattern (``README.md`` *Adapter*): every concrete implementation
+The Adapter pattern (``OBJECTIVES.md`` *Adapter*): every concrete implementation
 lives in ``infrastructure/llm/`` and translates the vendor's wire format
 into our ``Message`` / ``ToolSpec`` / ``AssistantTurn`` shape. The application
 and presentation layers only ever see this Protocol, so a vendor type cannot

@@ -94,7 +94,7 @@ Not required. `pydantic`, `pydantic-settings`, `anthropic` are already pinned by
     - presentation/commands/learn.py: LearnCommand registered in cli.py.
     - composition root generates UUIDv4 session_id at startup and wires SessionStore.
 
-    Satisfies README bullet 2: 'The command creates the JSON file'."
+    Satisfies OBJECTIVES bullet 2: 'The command creates the JSON file'."
    ```
    **Note:** The above message is a template. The single commit merges two subagents' work. If the compactor schema changed, if idempotency was handled differently, if the session ID strategy differs, or if any file paths/names changed — update the commit body to reflect what actually landed.
 

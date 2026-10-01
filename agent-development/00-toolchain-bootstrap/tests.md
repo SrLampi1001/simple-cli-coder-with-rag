@@ -51,6 +51,6 @@ Each test runs the corresponding tool as a subprocess and asserts exit code 0.
 ## Why these tests
 
 - The toolchain tests assert the gate is actually enforced, not just installed.
-- The gitignore tests assert the secrets contract from the master README is real.
+- The gitignore tests assert the secrets contract from the master OBJECTIVES is real.
 - The env-example test asserts the documented defaults match the actual settings defaults.
 - The smoke tests give subsequent deliverables an importable package to build on.

@@ -6,7 +6,7 @@ The three LLM providers used by this project — **NVIDIA**, **Mistral**, and **
 
 ## Source of truth
 
-- `README.md` — Adapter pattern.
+- `OBJECTIVES.md` — Adapter pattern.
 - `docs/development-tools.md` §6 (LLM), §8 (pydantic, pydantic-settings).
 - The web-search findings recorded in this deliverable's commit body (which providers expose an Anthropic-compatible endpoint, their `base_url`s and auth headers, and a reference implementation per provider).
 
