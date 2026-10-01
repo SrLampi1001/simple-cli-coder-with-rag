@@ -18,6 +18,7 @@ import argparse
 import sys
 
 from simple_cli_coder_with_rag import __version__
+from simple_cli_coder_with_rag.application.knowledge_service import KnowledgeService
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
@@ -100,8 +101,23 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         return None, None
 
     llm_client = build_llm_client(settings)
-    app_state = AppState(version=__version__, llm=llm_client)
+    chat_model = _resolve_chat_model(settings)
+    knowledge = KnowledgeService(llm=llm_client, chat_model=chat_model)
+    app_state = AppState(version=__version__, llm=llm_client, knowledge=knowledge)
     return settings, app_state
+
+
+def _resolve_chat_model(settings: Settings) -> str:
+    """Return the model name to pass to ``LLMClient.complete`` for chat turns.
+
+    ``settings.chat_model`` is the explicit override (set via the
+    ``CHAT_MODEL`` env var). An empty string means "no override"; in that
+    case we fall back to the active provider's per-provider default so the
+    REPL still has a usable model out of the box.
+    """
+    if settings.chat_model:
+        return settings.chat_model
+    return getattr(settings, f"{settings.default_provider}_model")
 
 
 def _reset_local_data() -> int:

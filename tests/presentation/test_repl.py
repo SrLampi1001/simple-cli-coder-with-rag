@@ -15,6 +15,8 @@ from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
 from simple_cli_coder_with_rag.presentation.repl import Repl
 
 if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
+
     from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
 
 
@@ -94,15 +96,26 @@ def test_repl_echoes_non_slash_input_message(
     monkeypatch: pytest.MonkeyPatch,
     fresh_registry: CommandRegistry,
     capsys: pytest.CaptureFixture[str],
+    mocker: MockerFixture,
 ) -> None:
+    """Non-slash input is routed through ``KnowledgeService.chat`` (DO-03).
+
+    Pre-DO-03 this branch printed ``Type /help for available commands.``.
+    DO-03 wires non-slash input into the chat path; we assert the LLM
+    response is echoed to stdout.
+    """
+    knowledge = mocker.MagicMock()
+    knowledge.chat.return_value = "echo from chat"
+
     fresh_registry.register(ExitCommand())
     _patch_prompt(monkeypatch, ["hello", "/exit"])
 
-    repl = Repl(registry=fresh_registry, app_state=_app_state())
+    state = AppState(version=__version__, knowledge=knowledge, history=[])
+    repl = Repl(registry=fresh_registry, app_state=state)
     repl.run()
 
     captured = capsys.readouterr().out
-    assert "Type /help for available commands." in captured
+    assert "echo from chat" in captured
 
 
 def test_repl_does_not_call_loguru_sink_for_stderr(

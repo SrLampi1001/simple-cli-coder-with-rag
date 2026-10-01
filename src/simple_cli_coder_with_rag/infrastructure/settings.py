@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     mistral_base_url: str | None = None
     minimax_base_url: str | None = None
 
+    # The model used by the REPL chat path. Empty string (default) means
+    # "fall back to the active provider's per-provider default", so a user
+    # who never overrides ``CHAT_MODEL`` still gets a sensible model. The
+    # composition root resolves the empty-string case against
+    # ``getattr(settings, f"{default_provider}_model")``.
+    chat_model: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
