@@ -1,0 +1,88 @@
+[project]
+name = "simple-cli-coder-with-rag"
+version = "0.1.0"
+description = "Simple CLI code assistant with RAG"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.0,<2",
+    "fastembed>=0.8.1,<0.9",
+    "loguru>=0.7",
+    "platformdirs>=4.0",
+    "prompt-toolkit>=3.0.53",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.15",
+    "sqlite-vec>=0.1.9",
+]
+
+[project.optional-dependencies]
+remote-embedder = ["httpx", "tenacity"]
+
+[project.scripts]
+coder = "simple_cli_coder_with_rag.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simple_cli_coder_with_rag"]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "mypy",
+    "ruff",
+    "import-linter",
+    "pre-commit",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Scope ruff to actual Python source. `agent-development/` (the implementation
+# plan) and `docs/` (project documentation) contain illustrative Python inside
+# Markdown that ruff 0.16+ would otherwise reformat, silently rewriting the
+# DO-01..DO-10 planning documents. Excluding them keeps the gate focused on
+# `src/` and `tests/`.
+extend-exclude = ["agent-development/", "docs/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+
+# Per-module overrides. ignore_missing_imports is a boolean (not a list).
+# anthropic ships types, so it is NOT overridden.
+[[tool.mypy.overrides]]
+module = "fastembed"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sqlite_vec"
+ignore_missing_imports = true
+
+# Strict mode applies only to our own code.
+[[tool.mypy.overrides]]
+module = "simple_cli_coder_with_rag.*"
+disallow_untyped_defs = true
+
+[tool.importlinter]
+root_package = "simple_cli_coder_with_rag"
+
+[[tool.importlinter.contracts]]
+name = "layered-architecture"
+type = "layers"
+layers = [
+    "simple_cli_coder_with_rag.presentation",
+    "simple_cli_coder_with_rag.infrastructure",
+    "simple_cli_coder_with_rag.application",
+    "simple_cli_coder_with_rag.domain",
+]
