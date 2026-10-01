@@ -8,6 +8,7 @@ sink is removed and replaced with a rotating file under
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import platformdirs
@@ -24,14 +25,21 @@ def _log_dir() -> Path:
 def configure_logging(*, log_dir: Path | None = None) -> Path:
     """Install the file sink. Returns the resolved log directory.
 
-    Idempotent for tests: ``logger.remove(0)`` is called first so the
-    default stderr sink is gone. Tests can monkeypatch ``logger.add`` and
-    ``logger.remove`` to observe calls without touching the filesystem.
+    Idempotent: the default stderr sink (always at index ``0`` on a
+    fresh loguru logger) is removed if it is still present, and the
+    file sink is then added. Subsequent calls in the same process
+    succeed because the ``remove(0)`` is suppressed.
+
+    Tests can still monkeypatch ``logger.add`` and ``logger.remove`` to
+    observe calls without touching the filesystem.
     """
     target_dir = log_dir if log_dir is not None else _log_dir()
     target_dir.mkdir(parents=True, exist_ok=True)
     log_path = target_dir / _LOG_FILENAME
-    _logger.remove(0)
+    # Remove the default stderr sink if it still exists. ``logger.remove(0)``
+    # raises ``ValueError`` if index 0 is already gone.
+    with contextlib.suppress(ValueError):
+        _logger.remove(0)
     _logger.add(
         str(log_path),
         level="DEBUG",

@@ -17,13 +17,25 @@ def test_env_example_has_provider_keys() -> None:
 
 
 def test_env_example_has_no_real_secret() -> None:
-    allowed_values = {""}
+    """API-key lines must be empty; other config may have defaults.
+
+    DO-02 added non-secret configuration (``DEFAULT_PROVIDER``,
+    ``*_MODEL``, ``*_BASE_URL``) to ``.env.example``. Those are not
+    secrets, so the rule "only empty values" is too strict. We now
+    enforce the empty rule only on the lines that *look* like API keys.
+    """
+    secret_prefixes = (
+        "NVIDIA_API_KEY",
+        "MISTRAL_API_KEY",
+        "MINIMAX_API_KEY",
+    )
     for line in ENV_EXAMPLE.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        _, _, value = line.partition("=")
-        assert value.strip() in allowed_values, f"unexpected value in .env.example: {value!r}"
+        key, _, value = line.partition("=")
+        if any(key.startswith(prefix) for prefix in secret_prefixes):
+            assert value.strip() == "", f"secret line {key!r} has unexpected value: {value!r}"
 
 
 def test_env_example_does_not_override_actual_env() -> None:

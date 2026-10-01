@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, Protocol
 
 if TYPE_CHECKING:
+    from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.presentation.repl import Repl
 
 
@@ -19,10 +20,13 @@ class AppState:
     """Mutable application state passed to commands.
 
     ``Settings`` is **not** stored here: it is built once in the
-    composition root and consumed by concrete adapters directly.
+    composition root and consumed by concrete adapters directly. The
+    resulting ``LLMClient`` *is* stashed here so commands can reach it
+    (DO-03 wires the chat loop; DO-04 wires the compactor).
     """
 
     version: str
+    llm: LLMClient | None = None
 
 
 @dataclass(frozen=True)

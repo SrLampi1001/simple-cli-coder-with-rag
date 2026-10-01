@@ -6,8 +6,10 @@ Responsibilities:
 * on ``--reset``, wipe the local data directory **before** any logger or
   REPL state is touched (so a destructive run never races a live SQLite
   handle);
-* otherwise, configure loguru to write to ``platformdirs.user_log_dir``
-  and start the :class:`~simple_cli_coder_with_rag.presentation.repl.Repl`.
+* otherwise, configure loguru to write to ``platformdirs.user_log_dir``,
+  load :class:`Settings`, build the ``LLMClient`` for the active
+  provider, and start the
+  :class:`~simple_cli_coder_with_rag.presentation.repl.Repl`.
 """
 
 from __future__ import annotations
@@ -16,8 +18,10 @@ import argparse
 import sys
 
 from simple_cli_coder_with_rag import __version__
+from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
+from simple_cli_coder_with_rag.infrastructure.settings import Settings
 from simple_cli_coder_with_rag.presentation.commands import AppState
 from simple_cli_coder_with_rag.presentation.commands.clear import ClearCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
@@ -66,11 +70,38 @@ def main(argv: list[str] | None = None) -> int:
 
     configure_logging()
 
-    app_state = AppState(version=__version__)
+    _settings, app_state = _bootstrap_app_state()
+    if app_state is None:
+        # Settings validation failed; the helper already wrote the message
+        # to stderr. We deliberately do **not** start the REPL here — the
+        # prompt would corrupt the message.
+        return 2
+
     registry = _build_registry()
     repl = Repl(registry=registry, app_state=app_state)
     repl.run()
     return 0
+
+
+def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
+    """Instantiate Settings, build the active LLM client, and bundle into AppState.
+
+    Returns ``(None, None)`` if the active provider's API key is missing —
+    in that case the helper prints a friendly message to stderr (the only
+    place we write to stderr before ``prompt_toolkit`` takes over) and the
+    caller exits with code 2.
+    """
+    try:
+        settings = Settings()
+    except RuntimeError as exc:
+        # Active provider's key is missing. This is the only stderr write
+        # before the REPL takes over.
+        print(f"coder: {exc}", file=sys.stderr)
+        return None, None
+
+    llm_client = build_llm_client(settings)
+    app_state = AppState(version=__version__, llm=llm_client)
+    return settings, app_state
 
 
 def _reset_local_data() -> int:
