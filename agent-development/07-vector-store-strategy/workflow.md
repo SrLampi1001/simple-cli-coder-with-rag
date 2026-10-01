@@ -34,12 +34,15 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
    - `__init__`: try `conn.enable_load_extension(True); conn.load_extension("vec0")`. Catch `AttributeError`, `sqlite3.NotSupportedError`, `sqlite3.OperationalError` and raise `VectorStoreBackendUnavailable` with the dev-tools.md §4 message (mentioning `VECTOR_STORE=brute_force` as the workaround).
    - On success, run the `CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING vec0(...)` schema exactly as dev-tools.md §4.
    - `upsert(chunks, vectors)`: open a fresh connection, run `DELETE FROM chunks WHERE session_id = ?` for the unique `session_id`s in the input, then `executemany` the inserts. `commit()`. Close.
-   - `query(vector, top_k)`: open a fresh connection, run `SELECT embedding, text, session_id, created_at FROM chunks WHERE embedding MATCH ? ORDER BY distance LIMIT ?`. For each row, compute cosine similarity as `1 - row[0]` (sqlite-vec returns L2 by default; with `distance_metric=cosine`, the returned distance is `1 - cosine_similarity`, so similarity is `1 - distance`). Hydrate a `Chunk` from the row. Return `[(chunk, similarity)]`.
+   - `query(vector, top_k)`: open a fresh connection, run
+     `SELECT distance, text, session_id, created_at FROM chunks WHERE embedding MATCH ? ORDER BY distance LIMIT ?`.
+     The **first selected column must be `distance`**, not `embedding`. sqlite-vec with `distance_metric=cosine` returns `distance = 1 - cosine_similarity`, so `similarity = 1 - row[0]`. Hydrate a `Chunk` from `row[1:]` (`text`, `session_id`, `created_at`). Clamp similarity to `[-1.0, 1.0]`. Return `[(chunk, similarity)]`.
+     (Selecting `embedding` and treating it as the distance is a real bug — the vector column is not the `distance` column.)
 
 6. **Write `src/simple_cli_coder_with_rag/infrastructure/vector_stores/numpy_brute_force_store.py`** with `NumpyBruteForceStore`. Implementation:
    - Store `self._items: list[tuple[np.ndarray, Chunk]]`.
-   - `upsert`: extend the list.
-   - `query`: stack vectors into a `np.ndarray` (compute lazily), cosine similarity = `dot(v, V) / (||v|| * ||V||)`. Sort descending, take top `k`. Return `[(chunk, float(sim)) for ...]`.
+   - `upsert`: **delete-then-insert by `session_id`** (remove any existing items whose `chunk.session_id` is in the incoming batch), then append the new items. This mirrors `SqliteVecStore` and keeps `upsert` idempotent by `session_id` (DO-07 Behavioral contract). Blindly extending the list would duplicate rows in the fallback backend and inflate similarity rankings on repeated `/learn`.
+   - `query`: stack vectors into a `np.ndarray` (compute lazily), cosine similarity = `dot(v, V) / (||v|| * ||V||)`. Guard against zero-norm vectors (return similarity `0.0` rather than dividing by zero). Sort descending, take top `k`. Return `[(chunk, float(sim)) for ...]`.
    - Do not import numpy at module level — import inside the methods. (Avoids dragging numpy into the cold-start path of the sqlite-vec default.)
 
 7. **Add `forbidden_imports` contract** to `pyproject.toml`:
@@ -83,7 +86,7 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
 
 12. **Run the gate.** All exit 0.
 
-13. **Commit:**
+13. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/domain/vector_store.py \
             src/simple_cli_coder_with_rag/infrastructure/vector_stores \
@@ -111,6 +114,7 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
 
     Satisfies README bullet 4: 'The JSON file is stored into a vectorial database'."
     ```
+    **Note:** The above message is a template. If the schema differs from dev-tools.md §4, if the similarity normalization changed, if fallback detection was implemented differently, or if `KnowledgeService` constructor signature evolved — update the commit body to match the actual code.
 
 14. **Post-flight.** `git status` clean.
 

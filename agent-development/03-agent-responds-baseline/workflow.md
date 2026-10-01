@@ -45,7 +45,7 @@ Not required. The `LLMClient` Protocol from DO-02 is stable; no new dependencies
 
 10. **Smoke test** (separate terminal, not committed): with a fake `.env` containing `ANTHROPIC_API_KEY=sk-fake`, run `uv run coder`, type `hello`, observe a chat response (or a graceful `LLMError` if the key is fake — both are acceptable for this smoke test).
 
-11. **Commit:**
+11. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/application \
             src/simple_cli_coder_with_rag/presentation \
@@ -65,6 +65,7 @@ Not required. The `LLMClient` Protocol from DO-02 is stable; no new dependencies
 
     Satisfies README bullet 1: 'The CLI works and the agents answer'."
     ```
+    **Note:** The above message is a template. Edit to match actual implementation. If the history cap changed, if error handling differs, if `build_chat_messages` signature changed, or if any stubs were implemented differently — update the commit body accordingly.
 
 12. **Post-flight.** `git status` clean.
 

@@ -25,7 +25,7 @@ tests/
 - `test_user_message_role_default` — `UserMessage(content="hi").role == "user"`.
 - `test_assistant_message_role_default` — `AssistantMessage(content="hi").role == "assistant"`.
 - `test_system_message_role_default` — `SystemMessage(content="hi").role == "system"`.
-- `test_message_union_validation` — passing `role="tool"` to `Message.model_validate(...)` raises `ValidationError`.
+- `test_message_union_validation` — passing an unknown `role` (e.g. `"junior"`) to `Message.model_validate(...)` raises `ValidationError`. **Note:** DO-10 adds a legitimate `"tool"` role, so this test must be updated then to use a genuinely unknown role instead of `"tool"`.
 - `test_assistant_turn_default_empty_tool_calls` — `AssistantTurn(content="hi").tool_calls == []`.
 - `test_tool_call_round_trip` — `ToolCall(id="1", name="x", arguments={"a": 1}).model_dump()` round-trips.
 

@@ -24,10 +24,10 @@ A `VectorStore` Protocol with two implementations: `SqliteVecStore` (default, us
   - Each `query` opens a fresh connection (per dev-tools.md §4 "open the connection inside the worker").
   - Returns `list[tuple[Chunk, float]]` where the float is the cosine **similarity** (1 − distance), so larger is better.
 - [ ] `src/simple_cli_coder_with_rag/infrastructure/vector_stores/numpy_brute_force_store.py` defines `class NumpyBruteForceStore`:
-  - In-memory list of `(vector, chunk)` tuples. `query` does cosine similarity in numpy. Activated only when `SqliteVecStore` raises `VectorStoreBackendUnavailable` or when `Settings.vector_store == "brute_force"`.
+  - In-memory list of `(vector, chunk)` tuples. `query` does cosine similarity in numpy. Activated only when `SqliteVecStore` raises `VectorStoreBackendUnavailable` or when `Settings.vector_store == "brute_force"`. `upsert` is **delete-then-insert by `session_id`** (same idempotency contract as `SqliteVecStore`), and `query` skips zero-norm rows to avoid division-by-zero (`NaN` similarities).
 - [ ] `Settings` gains:
   - `vector_store: Literal["sqlite_vec", "brute_force"] = "sqlite_vec"`
-  - `db_path: Path | None = None` (default `None` → `Path(user_data_dir("simple-cli-coder-with-rag")) / "db.sqlite"`).
+  - `db_path: Path | None = None` (default `None` → `LocalPaths.data_dir() / "db.sqlite"` from DO-01).
 - [ ] The composition root tries `SqliteVecStore(db_path)`; on `VectorStoreBackendUnavailable`, falls back to `NumpyBruteForceStore()` and logs at INFO. The `Settings.vector_store == "brute_force"` short-circuits the fallback decision.
 - [ ] `KnowledgeService.learn` is updated to call `self.vector_store.upsert(chunks, vectors)`.
 - [ ] The full gate exits 0. Tests patch `sqlite_vec` to avoid loading a real extension.

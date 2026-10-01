@@ -34,19 +34,26 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
    - `edit` is atomic: read content, find `old_text` count (must be 1), write new content. If anything raises, re-raise without writing.
    - `write` creates parents via `resolved.parent.mkdir(parents=True, exist_ok=True)`.
 
-5. **Update `AnthropicLLMClient.complete_with_tools`**:
+5. **Update `AnthropicLLMClient.complete_with_tools`** (this is the adapter's job: the application layer must never know the wire shape):
    ```python
    response = self._client.messages.create(
        model=model,
        max_tokens=4096,
-       system=...,  # pull system messages from the front of `messages`
+       system=<concatenated system messages>,
        tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
-       messages=[{"role": m.role, "content": m.content} for m in messages if m.role != "system"],
+       messages=self._to_sdk_messages(messages),
    )
    ```
    Walk the response's `content` blocks; collect `TextBlock.text` into `content` and `ToolUseBlock` into `ToolCall(id=..., name=..., arguments=block.input)`. Wrap `APIError` in `LLMError`.
 
-6. **Update `KnowledgeService.chat`** with a tool loop:
+   **`_to_sdk_messages` translation rules (Anthropic Messages API only allows `user` and `assistant` roles — there is no `tool` role):**
+   - `SystemMessage` → pulled out into the `system=` parameter (never placed in `messages`).
+   - `UserMessage` → `{"role": "user", "content": m.content}`.
+   - `AssistantMessage` → `{"role": "assistant", "content": [ ... ]}` where the block list is `[{"type": "text", "text": m.content}]` (omit when empty) followed by one `{"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments}` per `m.tool_calls`.
+   - `ToolResultMessage` → must be sent as a **`user`** message whose content is a list of `{"type": "tool_result", "tool_use_id": m.tool_call_id, "content": m.content}` blocks. **Group consecutive `ToolResultMessage`s into a single user message** (multiple `tool_result` blocks) so the tool results belong to the preceding assistant `tool_use` turn.
+   - Interleaving rule: an assistant `tool_use` turn must be immediately followed by the matching `tool_result` (user) turn. Never emit an orphan `tool_use` or `tool_result`.
+
+6. **Update `KnowledgeService.chat`** with a tool loop that appends the assistant tool-use turn **and** the tool results (Anthropic rejects a `tool_result` with no preceding `tool_use`):
    ```python
    def chat(self, user_message, history, recalled):
        messages = build_chat_messages(user_message, history, recalled)
@@ -54,17 +61,19 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
        turn = self.llm.complete_with_tools(messages, model=settings.chat_model, tools=tools)
        rounds = 0
        while turn.tool_calls and rounds < settings.editor_max_tool_rounds:
-           # Execute each tool call, append results as tool-role messages
+           # 1. echo the assistant's tool-use turn back into the transcript
+           messages.append(AssistantMessage(content=turn.content, tool_calls=turn.tool_calls))
+           # 2. append one tool-result message per call (adapter groups them)
            for call in turn.tool_calls:
                result = self._execute_tool(call)  # dispatches to FileEditor
-               messages.append(ToolMessage(tool_call_id=call.id, content=result))
+               messages.append(ToolResultMessage(tool_call_id=call.id, content=result))
            turn = self.llm.complete_with_tools(messages, model=settings.chat_model, tools=tools)
            rounds += 1
        return turn.content
    ```
-   Define `ToolMessage` (a new Pydantic model with `role: Literal["tool"]`, `tool_call_id: str`, `content: str`) in `domain/messages.py`. Update `Message` union if present.
+   In `domain/messages.py`, **extend `AssistantMessage`** with `tool_calls: list[ToolCall] = Field(default_factory=list)` (defaults keep DO-02/DO-03 callers valid) and add a new `ToolResultMessage` model with `role: Literal["tool"] = "tool"`, `tool_call_id: str`, `content: str`. Add it to the `Message` union. Update the DO-02 test `test_message_union_validation` (which asserts `role="tool"` is rejected) accordingly — this deliverable intentionally introduces the tool role at the domain level; only the adapter maps it to the wire format.
 
-   `_execute_tool` catches `PathNotAllowed`, `FileNotFound`, `TextNotFound`, `AmbiguousEdit` and returns a human-readable error string instead of re-raising.
+   `_execute_tool` catches `PathNotAllowed`, `FileNotFound` (the `FileNotFoundError` re-export), `TextNotFound`, `AmbiguousEdit` and returns a human-readable error string instead of re-raising. It must also handle a malformed tool input (missing/extra keys) by returning an error string rather than raising `KeyError`.
 
 7. **Update `Settings`** in `infrastructure/settings.py`:
    ```python
@@ -83,7 +92,7 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
 
 11. **Manual smoke test** (separate terminal, not committed): in a temp directory, `uv run coder`, type `"create a file hello.txt with content 'world'"`. Confirm the file is created and the assistant reports success. Try `"read /etc/passwd"`; confirm the assistant says it's outside the allowed paths.
 
-12. **Commit:**
+12. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/domain/file_editor.py \
             src/simple_cli_coder_with_rag/domain/messages.py \
@@ -94,6 +103,7 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
             src/simple_cli_coder_with_rag/presentation/commands/__init__.py \
             src/simple_cli_coder_with_rag/cli.py \
             tests/domain/test_file_editor.py \
+            tests/domain/test_messages.py \
             tests/application/file_editor \
             tests/infrastructure/test_anthropic_client_tools.py \
             tests/application/test_knowledge_service_chat_with_tools.py
@@ -106,23 +116,29 @@ If the shape has changed, update the code and add a `bump: anthropic-sdk <old> -
       allowed_globs). Resolves paths against root; rejects traversal and symlink
       escape. edit() is atomic (read -> assert -> write). write() creates parent
       dirs.
-    - domain/messages.py: ToolMessage added to the Message union.
+    - domain/messages.py: AssistantMessage gains tool_calls; ToolResultMessage
+      added to the Message union.
     - infrastructure/llm/anthropic_client.py: complete_with_tools calls
-      messages.create with the tool schemas; parses ToolUseBlock into ToolCall.
-    - application/knowledge_service.py: chat executes tool calls via FileEditor
-      and feeds results back into a follow-up complete_with_tools, capped at
-      editor_max_tool_rounds (default 1). Editor exceptions are returned to the
+      messages.create with the tool schemas; parses ToolUseBlock into ToolCall;
+      maps AssistantMessage.tool_calls to tool_use blocks and ToolResultMessage to
+      a user message with tool_result blocks (Anthropic has no tool role).
+    - application/knowledge_service.py: chat echoes the assistant tool-use turn,
+      executes tool calls via FileEditor, appends ToolResultMessages, and feeds them
+      back into a follow-up complete_with_tools, capped at editor_max_tool_rounds
+      (default 1). Editor exceptions and malformed tool input are returned to the
       LLM as text rather than re-raised.
     - Settings.editor_root (Path.cwd by default), editor_max_tool_rounds (1).
 
     Satisfies README bullet 6: 'The AI agent can edit files'."
     ```
+    **Note:** The above message is a template. If the tool schema changed, if the sandbox rules were tightened/loosened, if `_execute_tool` handles more/fewer exceptions, if the tool loop cap differs, or if the message models changed shape — update the commit body to match the actual implementation.
 
 13. **Post-flight.** `git status` clean. **This is the final deliverable.** After this commit, the README's six delivery objectives are all satisfied. The REPL works, `/learn` writes JSON, embeddings work, vectors are stored, semantic search runs before chat, and the agent can edit files.
 
 ## Failure modes
 
 - **Anthropic SDK tool-use shape changed:** the `web-search` step will catch it. If not caught, `complete_with_tools` will fail at runtime; the test `test_complete_with_tools_passes_tool_schemas` pins the schema.
+- **`tool_result` sent without a preceding `tool_use`, or with `role="tool"`:** the API returns a 400. The adapter must translate `ToolResultMessage` into a **user** message with a `tool_result` block, and `KnowledgeService.chat` must append the assistant `tool_use` turn first. Pinned by `test_assistant_tool_calls_map_to_tool_use_blocks`, `test_tool_result_messages_map_to_user_tool_result_blocks`, and `test_chat_appends_assistant_turn_then_tool_result`.
 - **Sandbox bypass via symlink:** the symlink-escape test pins this. If the test ever passes when it shouldn't, `Path.resolve()` is being misused — it does follow symlinks by default.
 - **Tool loop never terminates:** `editor_max_tool_rounds` is the upper bound. Test `test_chat_respects_max_tool_rounds` pins this. If the LLM keeps asking for tools, the service stops after one round and returns whatever it has — the user sees a partial response.
 - **`subprocess` / `os.system` introduced for "just in case":** the architectural contract explicitly forbids it. `grep -r "import subprocess" src/simple_cli_coder_with_rag/` should return nothing.

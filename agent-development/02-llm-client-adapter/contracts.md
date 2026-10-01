@@ -24,6 +24,7 @@
 - [ ] `class Message(BaseModel)`:
   - `role: Literal["user", "assistant", "system"]`
   - `content: str`
+  - Note: DO-10 extends the union with a `"tool"` role (`ToolResultMessage`) and `AssistantMessage.tool_calls`. This deliverable defines only the three roles above.
 - [ ] `class UserMessage(Message)` with `role: Literal["user"] = "user"` (frozen model_config).
 - [ ] `class AssistantMessage(Message)` with `role: Literal["assistant"] = "assistant"`.
 - [ ] `class SystemMessage(Message)` with `role: Literal["system"] = "system"`.

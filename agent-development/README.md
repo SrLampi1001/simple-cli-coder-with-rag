@@ -58,7 +58,7 @@ A deliverable cannot be marked complete unless **all** of the following are true
 1. **Pre-flight clean:** at the start of the deliverable, `git status` shows no unstaged or untracked files. If it does not, stop and resolve them before doing anything else. (Untracked files in this folder from prior deliverables are fine — they will be committed by the time we get here.)
 2. **All tests pass**, including the new ones in `tests.md`.
 3. **Linters clean:** `ruff check`, `ruff format --check`, `mypy src`, `lint-imports` all exit 0.
-4. **Conventional commit:** the work is committed with a message that follows [Conventional Commits](https://www.conventionalcommits.org/). Suggested prefixes per deliverable are in each `workflow.md`.
+4. **Conventional commit:** the work is committed with a message that follows [Conventional Commits](https://www.conventionalcommits.org/). **The commit message must reflect what was actually implemented**, not just what was planned. Each `workflow.md` provides a **suggested template** — adapt it to match the real changes.
 5. **Post-flight clean:** after the commit, `git status` is clean.
 
 If any of those fail, the deliverable is **not done**. Do not move on. Fix and re-run the gate.
@@ -74,6 +74,13 @@ If any of those fail, the deliverable is **not done**. Do not move on. Fix and r
 ```
 
 `<type>` is one of `feat`, `fix`, `chore`, `refactor`, `test`, `docs`, `perf`. `<scope>` is the deliverable number, e.g. `(toolchain)`, `(cli)`, `(rag)`. The summary line is imperative mood, lowercase, no period, ≤72 chars.
+
+### Commit message guidance
+
+- **The examples in `workflow.md` are templates/suggestions only.** During implementation, discoveries, refactors, bug fixes, or scope changes often occur. The final commit message must accurately describe what was *actually* done.
+- If the implementation deviates from the plan, update the commit body accordingly — add, remove, or reword bullet points to match reality.
+- Do not commit a message claiming features that don't exist or tests that weren't written. This obscures history and makes debugging harder.
+- When in doubt, keep the summary line accurate and let the body explain the delta from the plan.
 
 ## Subagent delegation
 
@@ -148,3 +155,18 @@ Stop and ask the user (do not guess) if:
 - A deliverable's `workflow.md` cannot complete in one focused session.
 - The agent's context is getting bloated and a subagent is needed but not budgeted.
 - A pre-flight `git status` shows files the agent does not recognize.
+- A `workflow.md` step contradicts a `contracts.md` line, or the implementation is forced to diverge from the plan in a way the contracts do not cover.
+- A known discrepancy between this plan and `docs/development-tools.md` is hit (see "Known discrepancies" below).
+
+## Known discrepancies with `docs/development-tools.md`
+
+These are deliberate, tracked mismatches. They are **not** licenses to improvise. Resolve each with the user before the affected deliverable, then update both documents so they agree.
+
+**No discrepancies are currently tracked.** The previously-listed items have been folded back into the plan:
+
+- `coder --reset` (`dev-tools.md` §7) is now defined in DO-01: it wipes the local data dir (DB + session JSON files) under `platformdirs.user_data_dir` after an interactive `y/N` prompt, default `N`. The single source of truth for those file paths is `infrastructure/local_paths.LocalPaths` (consumed by `--reset` and DO-07's DB default).
+- The "run retrieval concurrently with prompt/LLM preparation" latency tip (`README.md` + `dev-tools.md` §9) is now a measured budget in DO-09: `test_recall_latency_under_threshold` pins end-to-end recall at < 100 ms. If the test fails, the documented resolution is to introduce a separate `LLMCallExecutor` and overlap the LLM SDK call with recall (DO-09 workflow step 10).
+- The `RetrievalExecutor` scope is now pinned by an architectural contract in DO-08: `RetrievalExecutor` is retrieval-only; LLM-bound concurrency (if ever added) must use a separate executor.
+- The DO-02 ↔ DO-10 message-union change has been applied: DO-02's `test_message_union_validation` uses a genuinely unknown role (`"junior"`), and DO-10 adds `tests/domain/test_messages.py` with `test_tool_result_message_has_tool_role`, `test_assistant_message_carries_tool_calls`, and `test_message_union_accepts_tool_result`.
+
+If a new discrepancy is found, add a row here with a `Resolution` and resolve it before the affected deliverable.

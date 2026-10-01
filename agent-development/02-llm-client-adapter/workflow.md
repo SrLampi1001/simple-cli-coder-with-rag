@@ -58,7 +58,7 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
     - `git status` does not show `.env`.
     - Create a temporary `.env` with a fake key, run `uv run coder --version` — works. Run `git status` again — `.env` is untracked but **ignored** (`!!` marker).
 
-12. **Commit:**
+12. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/domain \
             src/simple_cli_coder_with_rag/infrastructure \
@@ -78,6 +78,7 @@ If the version has moved within the same minor, update `pyproject.toml` and add 
 
     Adapter pattern honored: anthropic import is confined to infrastructure/llm/."
     ```
+    **Note:** The above message is a template. Edit the summary and bullet points to match what was actually implemented. If the Protocol shape changed, if `complete_with_tools` was deferred, if Settings fields differ, or if any refactoring occurred — reflect the reality in the commit body.
 
 13. **Post-flight.** `git status` clean.
 

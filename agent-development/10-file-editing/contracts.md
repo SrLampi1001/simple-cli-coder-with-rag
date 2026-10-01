@@ -41,6 +41,10 @@
   - `write(self, path: str, content: str) -> None`
   - `edit(self, path: str, old_text: str, new_text: str) -> None`
 - [ ] `AnthropicLLMClient.complete_with_tools(self, messages, *, model, tools) -> AssistantTurn` — full implementation.
+- [ ] `domain/messages.py` changes:
+  - `AssistantMessage` gains `tool_calls: list[ToolCall] = Field(default_factory=list)` (backward compatible with DO-02/DO-03 construction).
+  - New `class ToolResultMessage(Message)` with `role: Literal["tool"] = "tool"`, `tool_call_id: str`, `content: str`, added to the `Message` union.
+- [ ] Adapter translation contract (wire shape stays inside `infrastructure/llm/anthropic_client.py`): an `AssistantMessage` with `tool_calls` becomes an assistant message containing `tool_use` blocks, and consecutive `ToolResultMessage`s become a single `user` message containing `tool_result` blocks keyed by `tool_use_id`. Anthropic accepts only `user`/`assistant` roles, so a `tool`-role domain message must never be sent verbatim.
 - [ ] `Settings.editor_root: Path = Path.cwd()`.
 - [ ] `Settings.editor_max_tool_rounds: int = 1`.
 - [ ] `AppState.editor: FileEditor | None = None`.

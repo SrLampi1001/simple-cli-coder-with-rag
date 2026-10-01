@@ -95,6 +95,7 @@ If any version has moved within the same minor, update `pyproject.toml` and add 
 
     Gates DO-01 onwards."
     ```
+    **Note:** The above message is a suggested template. If dependency versions were bumped during web-search verification, the `bump:` lines belong in the body. If the skeleton or config files differ from the plan, update the bullet list to describe what actually landed.
 
 14. **Post-flight.** `git status` is clean. `git log --oneline -1` shows the commit. `git log -1 --format=%B` shows the full body.
 

@@ -11,7 +11,8 @@ The interactive REPL boots, accepts user input, parses slash commands via a `Com
 
 ## Acceptance criteria
 
-- [ ] `src/simple_cli_coder_with_rag/cli.py` exposes `main(argv: list[str] | None = None) -> int`. `argparse` parses `--version` and `--help` only; the rest goes to the REPL.
+- [ ] `src/simple_cli_coder_with_rag/cli.py` exposes `main(argv: list[str] | None = None) -> int`. `argparse` parses `--version`, `--help`, and `--reset`; the rest goes to the REPL.
+- [ ] `coder --reset` deletes all local data (vector store DB, chat session JSON files) under `platformdirs.user_data_dir("simple-cli-coder-with-rag")`, **after** prompting the user on stdin (`Continue? [y/N] `, default `N`). On `y`, deletes `<data_dir>/db.sqlite` (+ `-shm`/`-wal` siblings if present) and every file under `<data_dir>/sessions/`, prints `Reset complete.` to stdout, and exits 0. On any other input, prints `Aborted.` and exits 0. The REPL is **not** entered. Missing files count as already-reset (no error).
 - [ ] `src/simple_cli_coder_with_rag/presentation/repl.py` defines `class Repl`. Constructor takes a `CommandRegistry`. `run() -> None` enters the `prompt_toolkit` loop until a command calls `exit`.
 - [ ] `src/simple_cli_coder_with_rag/presentation/commands/` is a subpackage with one module per command:
   - `help.py` — `class HelpCommand` lists all registered commands and their one-line descriptions.
@@ -49,6 +50,7 @@ pre-commit run --all-files
 - The `/learn` command (DO-04).
 - Any RAG code.
 - Pretty-printing, colors, or themes.
+- Cached model files in `user_cache_dir` (the local fastembed model is preserved across `--reset`; re-downloading is slow). `--reset` only touches `user_data_dir`.
 
 ## Depends on
 

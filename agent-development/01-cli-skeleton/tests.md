@@ -66,10 +66,18 @@ The test layout **mirrors the source layout** under `tests/presentation/`.
 - `test_cli_version_flag` — `main(["--version"])` exits 0 and stdout contains `0.1.0`.
 - `test_cli_help_flag` — `main(["--help"])` exits 0 and stdout contains a usage line.
 - `test_cli_runs_repl_when_no_args` — `main([])` calls `Repl.run()` once (patched).
+- `test_cli_reset_deletes_data_on_yes` — `monkeypatch` sets `LocalPaths.data_dir` to a temp dir containing a `db.sqlite` and a `sessions/a.jsonl` file. `main(["--reset"])` is invoked with stdin="y\n"; it exits 0, prints `Reset complete.` to stdout, and the temp dir no longer contains the files.
+- `test_cli_reset_aborts_on_default_input` — same setup; stdin="\n". `main(["--reset"])` exits 0, prints `Aborted.`, and the files are still present.
+- `test_cli_reset_aborts_on_uppercase_y` — stdin="Y\n" (case-sensitive). Files still present; prints `Aborted.`. Pins the exact-match semantics.
+- `test_cli_reset_prints_paths_before_prompt` — captured stdout contains the data-dir path and at least one filename **before** the `Continue? [y/N]` prompt line.
+- `test_cli_reset_handles_missing_dir` — `LocalPaths.data_dir` returns a non-existent path. `main(["--reset"])` with stdin="y\n" exits 0 and prints `Reset complete.` (no crash).
+- `test_cli_reset_skips_repl_and_logger` — `Repl.run` and `loguru.logger.add` are patched. `main(["--reset"])` with stdin="y\n" exits 0; neither `Repl.run` nor the file-sink `logger.add` was called.
+- `test_cli_reset_wins_over_version` — `main(["--reset", "--version"])` with stdin="y\n" runs reset (assert a session file is deleted) and exits 0; the version string is not printed.
 
 ## Why these tests
 
 - `test_registry_*` pins the `Command` registry contract.
 - `test_repl_*` pins the user-visible behavior of the loop.
 - `test_cli_entry_*` pins the script entry point.
+- `test_cli_reset_*` pins the destructive flag's safety properties: confirm-before-delete, case-sensitive `y`, no accidental REPL/logger init on the destructive path, and graceful handling of an empty install.
 - The `loguru` stderr assertion prevents the well-known "loguru corrupts the prompt" failure mode flagged in dev-tools.md §8.

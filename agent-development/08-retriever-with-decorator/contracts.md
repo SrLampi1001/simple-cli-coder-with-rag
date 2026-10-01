@@ -10,6 +10,7 @@
 - [ ] `import-linter` reports zero violations.
 - [ ] The Decorator wraps a `Retriever`; both `BaseRetriever` and `TimeoutRetriever` satisfy the same `Retriever` Protocol (verifiable by `isinstance` under `runtime_checkable`).
 - [ ] `ThreadPoolExecutor` is imported only in `infrastructure/retrievers/executor.py`.
+- [ ] **`RetrievalExecutor` is scoped to retrieval only.** It is **not** reused for LLM SDK calls or any other I/O. If future work needs to overlap the LLM SDK call with retrieval, that work must introduce a separate executor (e.g. `LLMCallExecutor(max_workers=1)`) in a layer of its own — never `RetrievalExecutor`. Mixing the two couples their cancellation and timeout policies and would defeat `TimeoutRetriever`'s bounded-latency guarantee.
 
 ## Behavioral
 
@@ -20,6 +21,7 @@
 - [ ] `TimeoutRetriever` against an `inner` that completes in 10 ms returns the inner's results verbatim.
 - [ ] `TimeoutRetriever` logs at DEBUG (via `loguru`) when a timeout fires.
 - [ ] `RetrievalExecutor.shutdown()` calls `executor.shutdown(wait=False, cancel_futures=True)`. Verified by patching `concurrent.futures.ThreadPoolExecutor`.
+- [ ] The composition root registers `RetrievalExecutor.shutdown()` on REPL exit (e.g. via `try/finally` in `cli.py` or an `on_exit` hook on `Repl`) so Ctrl-D does not hang waiting for the executor's threads. Pinned by an integration test that runs the REPL to EOF and asserts `shutdown(wait=False, cancel_futures=True)` was called.
 - [ ] `KnowledgeService.recall` returns a `list[str]` of the chunk texts from the retriever (or `[]` on timeout or `EmbedderNotReady`).
 
 ## Schema

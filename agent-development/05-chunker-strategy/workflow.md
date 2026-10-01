@@ -53,7 +53,7 @@ Not required. The chunker is project-owned code; no new deps.
 
 13. **Run the gate.** All exit 0.
 
-14. **Commit:**
+14. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/domain/chunk.py \
             src/simple_cli_coder_with_rag/domain/chunker.py \
@@ -79,6 +79,7 @@ Not required. The chunker is project-owned code; no new deps.
 
     Foundation for DO-06 (embedder) and DO-07 (vector store)."
     ```
+    **Note:** The above message is a template. If `Chunk` fields changed, if the chunking algorithm was adjusted, if a different default strategy was chosen, or if `KnowledgeService.learn` signature differs — update the commit body to reflect reality.
 
 15. **Post-flight.** `git status` clean.
 

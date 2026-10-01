@@ -16,7 +16,7 @@ An `Embedder` Protocol with a `FastembedEmbedder` implementation that loads `BAA
   class Embedder(Protocol):
       def embed_query(self, text: str) -> list[float]: ...
       def embed_passages(self, texts: list[str]) -> list[list[float]]: ...
-      def warmup(self) -> None: ...
+      def warmup(self, *, timeout: float | None = None) -> None: ...
       def is_ready(self) -> bool: ...
   ```
 - [ ] `src/simple_cli_coder_with_rag/infrastructure/embedders/fastembed_embedder.py` defines `class FastembedEmbedder`:
@@ -33,7 +33,7 @@ An `Embedder` Protocol with a `FastembedEmbedder` implementation that loads `BAA
   - `embedding_local_files_only: bool = True`
 - [ ] `AppState` gains `embedder: Embedder | None = None`.
 - [ ] The composition root builds the `FastembedEmbedder` with `cache_dir = Path(user_cache_dir("simple-cli-coder-with-rag")) / "models"` and starts the warm-up thread.
-- [ ] First-run UX: the embedder prints `downloading embedding model (one time only)…` to **stderr** (this is the one allowed stderr write; it happens **before** the REPL starts) when the model file is missing on disk.
+- [ ] First-run UX: the embedder prints `downloading embedding model (one time only)…` to **stderr** (this is the one allowed stderr write) when the model file is missing on disk. The download runs on a daemon thread, so the REPL can start before warm-up completes; if `embed_query`/`embed_passages` is called before the model is ready, the call raises `EmbedderNotReady` and the surrounding service (e.g. `KnowledgeService.recall`) returns `[]` rather than blocking.
 - [ ] The full gate exits 0. The `embedder` tests use `pytest-mock` to patch `fastembed.TextEmbedding`; they do not download a real model.
 
 ## Gate

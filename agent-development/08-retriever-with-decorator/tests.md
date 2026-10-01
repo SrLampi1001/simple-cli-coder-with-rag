@@ -60,8 +60,13 @@ Embedder and VectorStore are recording fakes.
 - `test_recall_returns_empty_on_embedder_not_ready` — Retriever raises `EmbedderNotReady`; `recall` returns `[]`.
 - `test_recall_returns_empty_on_timeout` — Retriever is wrapped in `TimeoutRetriever(timeout=0.05)` against a blocking inner; `recall` returns `[]` within ~100 ms.
 
+### `tests/presentation/test_repl_exit_shuts_down_executor.py`
+
+- `test_repl_eof_calls_executor_shutdown` — `Repl.run()` is fed an empty stream (immediate EOF); after it returns, `RetrievalExecutor.shutdown()` has been called. Patch `RetrievalExecutor.shutdown` and assert it was invoked exactly once. Pins the composition-root exit hook so Ctrl-D does not hang.
+
 ## Why these tests
 
 - `test_retrieve_embeds_then_queries` pins the orchestration order — the most common mistake is calling `query` before `embed`.
 - The timeout tests pin the Decorator's value proposition (bounded latency) and document that `future.result(timeout=)` does not cancel the underlying work (per dev-tools.md §9).
 - The executor-shutdown test prevents the `wait=True` footgun that delays Ctrl-D exit.
+- The REPL-exit test pins that the shutdown actually runs (not just that `shutdown()` is well-behaved in isolation).

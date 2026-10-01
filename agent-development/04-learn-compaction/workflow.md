@@ -62,11 +62,12 @@ Not required. `pydantic`, `pydantic-settings`, `anthropic` are already pinned by
 4. **Run the full gate.** All exit 0.
 
 5. **Smoke test** (separate terminal):
-   - With a fake `ANTHROPIC_API_KEY`, run `uv run coder`, type a couple of chat turns, then `/learn`. Expect a message `learned 0 chunks` and a `~/.local/share/simple-cli-coder-with-rag/sessions/<uuid>.jsonl` + `<uuid>.compacted.json` on disk. Run `/learn` again — only one `.compacted.json` should exist (idempotency).
+   - With a **fake** `ANTHROPIC_API_KEY`, run `uv run coder` and immediately `/learn` (do **not** type chat turns — they would fail with `LLMError` on a fake key). The empty session short-circuits, so expect `learned 0 chunks` and an empty `~/.local/share/simple-cli-coder-with-rag/sessions/<uuid>.jsonl` + `<uuid>.compacted.json` on disk. Run `/learn` again — only one `.compacted.json` should exist (idempotency).
+   - To exercise **real** compaction output (non-empty `errors`/`decisions`), repeat with a working API key and a few real chat turns. The fake-key run only proves the short-circuit and file-writing path.
 
 6. **Verify secrets safety:** `git status` does not show any file under `~/.local/share/...`.
 
-7. **Commit** (single commit, even though two subagents produced the changes):
+7. **Commit (suggested template — adapt to actual changes):**
    ```bash
    git add src/simple_cli_coder_with_rag/domain/compacted.py \
            src/simple_cli_coder_with_rag/application/session_store.py \
@@ -95,6 +96,7 @@ Not required. `pydantic`, `pydantic-settings`, `anthropic` are already pinned by
 
     Satisfies README bullet 2: 'The command creates the JSON file'."
    ```
+   **Note:** The above message is a template. The single commit merges two subagents' work. If the compactor schema changed, if idempotency was handled differently, if the session ID strategy differs, or if any file paths/names changed — update the commit body to reflect what actually landed.
 
 8. **Post-flight.** `git status` clean. Single new commit on top of DO-03.
 

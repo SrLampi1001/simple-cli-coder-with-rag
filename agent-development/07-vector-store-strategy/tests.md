@@ -40,6 +40,8 @@ tests/infrastructure/vector_stores/
 - `test_query_cosine_similarity_known_vectors` — upsert `[1,0]`, `[0,1]`. Query `[1,1]`. Cosine to first is `1/sqrt(2) ≈ 0.707`; to second is the same. Both chunks returned; similarity is `0.7071 ± 1e-3`.
 - `test_query_respects_top_k` — upsert 5 chunks, `top_k=2` returns 2.
 - `test_query_empty_store_returns_empty` — no `upsert`, `query` returns `[]`.
+- `test_upsert_is_idempotent_by_session` — two `upsert` calls for the same `session_id` leave exactly one stored copy (mirrors `SqliteVecStore`).
+- `test_query_skips_zero_norm_rows` — upsert a chunk with the zero vector; query returns no `NaN` similarity and excludes that row. (Prevents division-by-zero in the cosine denominator.)
 
 ### `tests/application/test_knowledge_service_learn_stores_vectors.py`
 
@@ -52,5 +54,6 @@ tests/infrastructure/vector_stores/
 
 - The `enable_load_extension` failure tests pin the dev-tools.md §4 startup check, which is the most common cross-platform failure mode.
 - The `+text` aux column test pins the schema, including the easy-to-forget `+` prefix.
-- The idempotency test prevents DO-09 from re-storing the same session repeatedly (cosine distances inflate otherwise).
+- The idempotency test prevents DO-09 from re-storing the same session repeatedly (cosine distances inflate otherwise); both stores share this contract.
 - The cosine-similarity-known-vectors test is a regression guard against an off-by-one bug in the numpy fallback.
+- The zero-norm-skip test guards against `NaN` similarities if a malformed vector is stored (the cosine denominator is zero).

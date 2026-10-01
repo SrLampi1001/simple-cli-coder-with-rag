@@ -34,6 +34,7 @@ tests/presentation/
 - `test_embedder_not_ready_returns_empty` — retriever raises `EmbedderNotReady`; result is `[]`.
 - `test_timeout_returns_empty` — retriever wrapped in `TimeoutRetriever(timeout=0.05, executor=...)` against a blocking inner; result is `[]` within ~100 ms.
 - `test_top_k_passed_through` — `RecallCoordinator(..., top_k=5)` calls retriever with `top_k=5`.
+- **`test_recall_latency_under_threshold`** — wires the production path end-to-end with fakes: `FakeEmbedder` returns a fixed 384-dim vector synchronously in < 1 ms; `FakeVectorStore` returns 3 `RetrievedChunk`s in < 1 ms. The fake retriever is wrapped in `TimeoutRetriever(timeout_seconds=0.05, executor=RetrievalExecutor(max_workers=2))` and passed to `RecallCoordinator(top_k=3, similarity_threshold=0.5)`. Time `coordinator.recall("why does ModuleNotFoundError happen for foo")` with `time.perf_counter()`. Assert `elapsed < 0.1` (100 ms). The threshold is the deliverable's budget: if this fails, recall is not negligible and DO-09 must implement LLM-call overlap (see `contracts.md` and `workflow.md`).
 
 ### `tests/application/test_prompts_with_recall.py`
 
@@ -58,4 +59,5 @@ tests/presentation/
 
 - The trivial-gate boundary tests pin the inclusive `<=` semantics, which is easy to off-by-one.
 - The threshold test pins the "strong matches only" rule from the README latency tips.
-- The REPL integration test pins the "recall runs concurrently / before prompt prep" behavior in user-visible terms.
+- The REPL integration test pins that recall runs before chat and degrades to "no memories" without blocking the prompt.
+- **`test_recall_latency_under_threshold` is the gate's UX contract.** It is not a perf micro-benchmark — it exists to flag the case where recall latency is large enough that a user feels a pause before the LLM reply. 100 ms is below human perception for a CLI; anything materially above it (≥ a few hundred ms) means DO-09 has regressed vs. the README latency tip and must implement LLM-call overlap.

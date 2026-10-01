@@ -14,7 +14,7 @@ The base retriever (in `application/`) and the timeout decorator + executor (in 
 - `tests/application/retrievers/test_base_retriever.py`
 - `tests/application/test_knowledge_service_recall.py`
 
-**Contract to satisfy:** schema for `RetrievedChunk`, `Retriever`, `BaseRetriever` in `contracts.md`.
+**Contract to satisfy:** schema for `RetrievedChunk`, `Retriever`, `BaseRetriever` in `contracts.md`. `KnowledgeService.recall(query, *, top_k=3)` calls the injected `Retriever.retrieve`, maps `RetrievedChunk.chunk.text`, and **catches `EmbedderNotReady` returning `[]`** (the retriever raises; the service degrades gracefully). The `Retriever` it receives is already `TimeoutRetriever`-wrapped by the composition root, so a timeout surfaces as `[]` from the retriever — no second timeout wrapper is added here.
 
 ### Subagent B — timeout decorator + executor
 
@@ -31,8 +31,10 @@ The base retriever (in `application/`) and the timeout decorator + executor (in 
 
 1. Runs pre-flight.
 2. Spawns A and B in parallel.
-3. After both return, runs the gate.
-4. Single commit at the end.
+3. Wires the composition root: build `retrieval_executor = RetrievalExecutor(max_workers=2)`, then `retriever = TimeoutRetriever(BaseRetriever(embedder, vector_store), timeout_seconds=settings.retrieval_timeout_seconds, executor=retrieval_executor)`. Assign the wrapped `retriever` where `KnowledgeService` expects it.
+4. Registers `retrieval_executor.shutdown()` on REPL exit (e.g. `Repl` calls an optional `on_exit` callback, or `cli.py` runs `repl.run()` inside `try/finally`). dev-tools.md §9 requires `shutdown(wait=False, cancel_futures=True)` so Ctrl-D does not hang.
+5. After both subagents return, runs the full gate.
+6. Single commit at the end.
 
 ## Web-search verification
 
@@ -44,15 +46,20 @@ Not required. `concurrent.futures.ThreadPoolExecutor` is stdlib-stable; no new d
 
 2. **Spawn subagents A and B in parallel.**
 
-3. **After both return, run the gate.** All exit 0.
+3. **Wire the composition root and the exit hook** (orchestrator, after both return): wrap `BaseRetriever` in `TimeoutRetriever` sharing the single `RetrievalExecutor`, and ensure `RetrievalExecutor.shutdown()` runs on REPL exit. Confirm `KnowledgeService` receives the **wrapped** retriever, not the bare `BaseRetriever`.
 
-4. **Commit:**
+4. **Run the gate.** All exit 0.
+
+5. **Commit (suggested template — adapt to actual changes):**
    ```bash
    git add src/simple_cli_coder_with_rag/domain/retriever.py \
            src/simple_cli_coder_with_rag/application/retrievers \
            src/simple_cli_coder_with_rag/infrastructure/retrievers \
            src/simple_cli_coder_with_rag/infrastructure/settings.py \
            src/simple_cli_coder_with_rag/application/knowledge_service.py \
+           src/simple_cli_coder_with_rag/infrastructure/settings.py \
+           src/simple_cli_coder_with_rag/presentation/repl.py \
+           src/simple_cli_coder_with_rag/cli.py \
            tests/domain/test_retriever.py \
            tests/application/retrievers \
            tests/application/test_knowledge_service_recall.py \
@@ -70,12 +77,16 @@ Not required. `concurrent.futures.ThreadPoolExecutor` is stdlib-stable; no new d
     - infrastructure/retrievers/executor.py: RetrievalExecutor wraps
       ThreadPoolExecutor(max_workers=2); shutdown(wait=False, cancel_futures=True).
     - Settings.retrieval_timeout_seconds: float = 1.5.
-    - KnowledgeService.recall now delegates to the retriever and returns chunk texts.
+    - KnowledgeService.recall delegates to the (wrapped) retriever, catches
+      EmbedderNotReady, and returns chunk texts.
+    - composition root wraps BaseRetriever in TimeoutRetriever sharing one executor;
+      executor shutdown is wired to REPL exit.
 
     Foundation for DO-09. CachedRetriever is deferred per dev-tools.md §12."
    ```
+   **Note:** The above message is a template. The single commit merges two subagents' work. If the `Retriever` Protocol shape changed, if `RetrievedChunk` is not a `NamedTuple`, if the executor was configured differently, or if `KnowledgeService.recall` returns a different type — update the commit body to reflect reality.
 
-5. **Post-flight.** `git status` clean.
+6. **Post-flight.** `git status` clean.
 
 ## Failure modes
 

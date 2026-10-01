@@ -65,7 +65,7 @@ If `fastembed` has moved across a minor, update `pyproject.toml` and add a `bump
 
 10. **Manual smoke test** (separate terminal, not committed): delete `~/.cache/simple-cli-coder-with-rag/models/` to force a download, run `uv run coder`, observe the `downloading embedding model (one time only)…` message on stderr, type `/exit`. Second run: no message.
 
-11. **Commit:**
+11. **Commit (suggested template — adapt to actual changes):**
     ```bash
     git add src/simple_cli_coder_with_rag/domain/embedder.py \
             src/simple_cli_coder_with_rag/infrastructure/embedders \
@@ -92,6 +92,7 @@ If `fastembed` has moved across a minor, update `pyproject.toml` and add a `bump
 
     Satisfies README bullet 3: 'The embedding model works'."
     ```
+    **Note:** The above message is a template. If the embedder Protocol gained/lost methods, if the warm-up strategy differs, if the model or its download handling changed, or if the import-linter contract was scoped differently — update the commit body to reflect what actually landed.
 
 12. **Post-flight.** `git status` clean.
 
@@ -99,4 +100,4 @@ If `fastembed` has moved across a minor, update `pyproject.toml` and add a `bump
 
 - **`fastembed.TextEmbedding` takes different kwargs in a newer version:** check the constructor signature before pinning. The kwargs in this deliverable are stable across 0.7.x and 0.8.x.
 - **Tests block on the real model download:** `pytest-mock` patches `TextEmbedding`, so the real download is never triggered. If a test ever hits the network, the patch is missing.
-- **Warm-up thread outlives the process and prints `downloading…` after `prompt_toolkit` starts:** the print happens in `_load`, which runs on the daemon thread. If `prompt_toolkit` is already running, the message will corrupt the prompt. Mitigate by checking `app_state.repl_active` (set in DO-09) and writing to the log file instead.
+- **Warm-up thread outlives the process and prints `downloading…` after `prompt_toolkit` starts:** the print happens in `_load`, which runs on the daemon thread. If `prompt_toolkit` is already running, the message will corrupt the prompt. Mitigate with a **module-level** `_REPL_ACTIVE` flag on `fastembed_embedder.py` that the composition root flips to `True` once the REPL is about to `run()`. When the flag is set, emit the message through `loguru` to the log file instead of `stderr`. Do **not** reach into `AppState` from `infrastructure/` — `infrastructure` must never import `presentation`, and passing a presentation object into the embedder inverts the layer dependency.

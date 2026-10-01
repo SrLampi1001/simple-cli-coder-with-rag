@@ -6,7 +6,8 @@ These tests must be written **before** any code in this deliverable.
 
 ```
 tests/domain/
-└── test_file_editor.py
+├── test_file_editor.py
+└── test_messages.py  (new: tool-role + assistant tool_calls models)
 
 tests/application/file_editor/
 ├── __init__.py
@@ -27,6 +28,12 @@ tests/application/
 - `test_path_not_allowed_is_permission_error` — `issubclass(PathNotAllowed, PermissionError)`.
 - `test_text_not_found_is_value_error` — `issubclass(TextNotFound, ValueError)`.
 - `test_ambiguous_edit_is_value_error` — `issubclass(AmbiguousEdit, ValueError)`.
+
+### `tests/domain/test_messages.py`
+
+- `test_tool_result_message_has_tool_role` — `ToolResultMessage(tool_call_id="1", content="x").role == "tool"`.
+- `test_assistant_message_carries_tool_calls` — `AssistantMessage(content="", tool_calls=[ToolCall(id="1", name="read", arguments={})]).tool_calls` round-trips.
+- `test_message_union_accepts_tool_result` — `Message.model_validate({"role": "tool", "tool_call_id": "1", "content": "x"})` validates to `ToolResultMessage`. (Supersedes DO-02's `test_message_union_validation`, which must be updated.)
 
 ### `tests/application/file_editor/test_sandboxed_editor.py`
 
@@ -54,16 +61,19 @@ Uses `tmp_path` for `root`.
 - `test_complete_with_tools_returns_text_only` — SDK stub returns only text; `tool_calls` is `[]`, `content` has the text.
 - `test_complete_with_tools_wraps_api_error` — SDK raises `APIError`; client raises `LLMError`.
 - `test_complete_with_tools_passes_tool_schemas` — captured SDK call's `tools` arg is a list of dicts with `name`, `description`, `input_schema`.
+- `test_assistant_tool_calls_map_to_tool_use_blocks` — given an `AssistantMessage(content="", tool_calls=[...])` in `messages`, the captured SDK `messages` contain an `assistant` entry whose content includes a `{"type": "tool_use", "id": ..., "name": ..., "input": ...}` block.
+- `test_tool_result_messages_map_to_user_tool_result_blocks` — given consecutive `ToolResultMessage`s, the captured SDK `messages` contain a single `user` entry whose content is a list of `{"type": "tool_result", "tool_use_id": ...}` blocks. **No `tool` role is ever sent** (assert all SDK roles are `user`/`assistant`).
 
 ### `tests/application/test_knowledge_service_chat_with_tools.py`
 
 `LLMClient` is a fake that returns `AssistantTurn` with tool calls on first call and a plain string on the second.
 
 - `test_chat_executes_tool_call_and_returns_followup` — given `tools=[read_tool]`, the service calls `editor.read(path)`, feeds the result into the second `complete_with_tools`, returns the follow-up text.
-- `test_chat_tool_result_is_appended_as_tool_message` — captured `messages` on the second call contains a tool-role message with the read result.
+- `test_chat_appends_assistant_turn_then_tool_result` — captured `messages` on the second call contains (in order) an `AssistantMessage` carrying the `tool_calls`, followed by a `ToolResultMessage` with the read result. This pins the Anthropic-required `tool_use` → `tool_result` ordering.
 - `test_chat_respects_max_tool_rounds` — `settings.editor_max_tool_rounds=1`; LLM returns a tool call that itself triggers another tool call (worst case); service stops after one round.
 - `test_chat_with_no_tool_calls_returns_first_response` — `complete_with_tools` returns `tool_calls=[]`; service returns `content` directly without a second call.
 - `test_chat_propagates_editor_errors` — `editor.read` raises `PathNotAllowed`; the service catches and returns the error message as the assistant's text (NOT re-raised — the user sees "I tried to read ../foo but it's outside the allowed paths.").
+- `test_chat_handles_malformed_tool_arguments` — `ToolCall.arguments` missing required keys does not raise `KeyError`; a readable error string is returned to the LLM.
 
 ## Why these tests
 
