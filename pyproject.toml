@@ -107,3 +107,22 @@ source_modules = [
 ]
 forbidden_modules = ["fastembed"]
 allow_indirect_imports = true
+
+# Regression guard (DO-07): ``sqlite_vec`` is the Python helper package
+# that registers the ``vec0`` extension. It must only appear in
+# ``infrastructure/vector_stores/sqlite_vec_store.py``. Upper-layer
+# modules must reach it through the ``VectorStore`` Protocol, never by
+# importing the package directly. Indirect imports through the store
+# itself are tolerated (composition root builds a ``SqliteVecStore`` —
+# the chain ``cli.py -> infrastructure.vector_stores.sqlite_vec_store
+# -> sqlite_vec`` is the only path that may reach it).
+[[tool.importlinter.contracts]]
+name = "sqlite-vec-only-in-vector-stores"
+type = "forbidden"
+source_modules = [
+    "simple_cli_coder_with_rag.application",
+    "simple_cli_coder_with_rag.domain",
+    "simple_cli_coder_with_rag.presentation",
+]
+forbidden_modules = ["sqlite_vec"]
+allow_indirect_imports = true

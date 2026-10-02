@@ -6,10 +6,9 @@ exposes three operations:
 
 * :meth:`KnowledgeService.chat` — plain chat turn (DO-03).
 * :meth:`KnowledgeService.learn` — read the on-disk session, compact it
-  via the compactor, chunk it via the Strategy-picked chunker, and
-  return the chunk count (DO-04 + DO-05). DO-06 embeds the chunks and
-  DO-07 persists them; this facade exposes the chunks via
-  :attr:`last_chunks` for those stages.
+  via the compactor, chunk it via the Strategy-picked chunker, embed
+  the chunks via the Strategy-picked embedder (DO-06), and persist them
+  to the Strategy-picked vector store (DO-07). Returns the chunk count.
 * :meth:`KnowledgeService.recall` — return relevant chunks; a stub until
   DO-09 wires the vector store.
 
@@ -31,6 +30,11 @@ Architectural notes:
   per chat turn). ``learn`` therefore reads the full transcript from
   disk via :class:`SessionStore` — it does not need an in-memory
   message list to be passed in.
+* ``embedder`` and ``vector_store`` are **optional**. When either is
+  ``None`` (legacy wiring from DO-04-DO-06 that has not yet been
+  upgraded to DO-07) the service still compacts and chunks, but skips
+  the embed -> upsert stage. This keeps the DO-04 and DO-06 test
+  suites passing without modification.
 """
 
 from __future__ import annotations
@@ -44,8 +48,10 @@ from simple_cli_coder_with_rag.application.prompts import build_chat_messages
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.domain.chunk import Chunk
 from simple_cli_coder_with_rag.domain.chunker import Chunker
+from simple_cli_coder_with_rag.domain.embedder import Embedder
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient
 from simple_cli_coder_with_rag.domain.messages import Message
+from simple_cli_coder_with_rag.domain.vector_store import VectorStore
 
 
 class KnowledgeService:
@@ -58,13 +64,17 @@ class KnowledgeService:
         session_store: SessionStore,
         compactor: Compactor,
         chunker: Chunker,
+        embedder: Embedder | None = None,
+        vector_store: VectorStore | None = None,
     ) -> None:
         self._llm = llm
         self._chat_model = chat_model
         self._session_store = session_store
         self._compactor = compactor
         self._chunker = chunker
-        # Most recent ``chunk`` result, populated by ``learn``. ``None``
+        self._embedder = embedder
+        self._vector_store = vector_store
+        # Most recent ``chunk`` result, populated by ``learn``. ``[]``
         # before the first ``/learn``. DO-06 (embedder) and DO-07
         # (vector store) read this so they can embed and persist
         # exactly the chunks that ``learn`` produced.
@@ -80,7 +90,7 @@ class KnowledgeService:
         return self._llm.complete(messages, model=self._chat_model)
 
     def learn(self, session_id: str) -> int:
-        """Compact, chunk, and persist the on-disk session for ``session_id``.
+        """Compact, chunk, embed, and persist the on-disk session for ``session_id``.
 
         Algorithm:
 
@@ -93,9 +103,14 @@ class KnowledgeService:
            overwrites any prior file — the second ``/learn`` replaces
            the first).
         4. Chunk the compacted document with the configured Strategy
-           chunker. Store the result on :attr:`last_chunks` and return
-           ``len(chunks)`` so the caller (``LearnCommand``) can display
-           the count.
+           chunker. Store the result on :attr:`last_chunks`.
+        5. **If** an embedder + vector store are configured, embed the
+           chunks and upsert them in one batch. The embedder and store
+           are wired together because they are the only place that
+           knows the embedding dimensionality (``bge-small-en-v1.5`` is
+           384-d by default; the embedder publishes the contract).
+        6. Return ``len(chunks)`` so the caller (``LearnCommand``) can
+           display the count.
 
         ``LLMError`` and :class:`~simple_cli_coder_with_rag.application.compactor.CompactionError`
         propagate verbatim.
@@ -104,6 +119,9 @@ class KnowledgeService:
         compacted = self._compactor.compact(session_id, all_messages)
         self._session_store.write_compacted(session_id, compacted)
         self.last_chunks = self._chunker.chunk(compacted)
+        if self._embedder is not None and self._vector_store is not None:
+            vectors = self._embedder.embed_passages([c.text for c in self.last_chunks])
+            self._vector_store.upsert(self.last_chunks, vectors)
         return len(self.last_chunks)
 
     def recall(self, query: str) -> list[str]:

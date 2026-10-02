@@ -9,7 +9,9 @@ Responsibilities:
 * otherwise, configure loguru to write to ``platformdirs.user_log_dir``,
   load :class:`Settings`, build the ``LLMClient`` for the active
   provider, build the session store + compactor + ``KnowledgeService``
-  facade, generate a fresh UUIDv4 session id, and start the
+  facade, build the vector store (with ``SqliteVecStore`` falling back
+  to ``NumpyBruteForceStore`` when ``sqlite-vec`` cannot load — DO-07),
+  generate a fresh UUIDv4 session id, and start the
   :class:`~simple_cli_coder_with_rag.presentation.repl.Repl`.
 """
 
@@ -20,6 +22,7 @@ import sys
 from pathlib import Path
 
 import platformdirs
+from loguru import logger
 
 from simple_cli_coder_with_rag import __version__
 from simple_cli_coder_with_rag.application.compactor import Compactor
@@ -28,11 +31,22 @@ from simple_cli_coder_with_rag.application.knowledge_service import (
     build_chunker,
 )
 from simple_cli_coder_with_rag.application.session_store import SessionStore
+from simple_cli_coder_with_rag.domain.vector_store import (
+    VectorStore,
+    VectorStoreBackendUnavailable,
+)
 from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
-from simple_cli_coder_with_rag.infrastructure.settings import Settings
+from simple_cli_coder_with_rag.infrastructure.settings import (
+    Settings,
+    resolve_db_path,
+)
+from simple_cli_coder_with_rag.infrastructure.vector_stores import (
+    NumpyBruteForceStore,
+    SqliteVecStore,
+)
 from simple_cli_coder_with_rag.presentation.commands import AppState
 from simple_cli_coder_with_rag.presentation.commands.clear import ClearCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
@@ -150,12 +164,21 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         local_files_only=settings.embedding_local_files_only,
     )
 
+    # Vector store (DO-07). ``SqliteVecStore`` is the default; the
+    # ``Settings.vector_store=="brute_force"`` setting short-circuits the
+    # sqlite-vec attempt, and an ``init`` failure (``VectorStoreBackendUnavailable``)
+    # also falls back to ``NumpyBruteForceStore``. The fallback is logged
+    # at INFO so the user can see it in ``tail -f`` of the log file.
+    vector_store = _build_vector_store(settings)
+
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
         session_store=session_store,
         compactor=compactor,
         chunker=chunker,
+        embedder=embedder,
+        vector_store=vector_store,
     )
     app_state = AppState(
         version=__version__,
@@ -167,6 +190,33 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         embedder=embedder,
     )
     return settings, app_state
+
+
+def _build_vector_store(settings: Settings) -> VectorStore:
+    """Build the configured vector store, with graceful fallback.
+
+    Order of attempts:
+
+    1. ``settings.vector_store == "brute_force"`` → use
+       :class:`NumpyBruteForceStore` directly (no sqlite-vec attempt).
+    2. ``settings.vector_store == "sqlite_vec"`` (default) → try
+       :class:`SqliteVecStore`. If its constructor raises
+       :class:`VectorStoreBackendUnavailable`, fall back to
+       :class:`NumpyBruteForceStore` and log a single INFO line so the
+       user can grep for it.
+
+    The fallback decision is logged through ``loguru`` to the file sink
+    (not stderr) — ``prompt_toolkit`` will own stderr during normal runs.
+    """
+    if settings.vector_store == "brute_force":
+        return NumpyBruteForceStore()
+
+    db_path = resolve_db_path(settings)
+    try:
+        return SqliteVecStore(db_path=db_path)
+    except VectorStoreBackendUnavailable as exc:
+        logger.info("sqlite-vec unavailable, falling back to numpy: {}", exc)
+        return NumpyBruteForceStore()
 
 
 def _resolve_chat_model(settings: Settings) -> str:

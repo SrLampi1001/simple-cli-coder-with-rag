@@ -14,16 +14,30 @@ Validation contract (DO-02):
   the others.
 * ``__repr__`` / ``__str__`` mask every key. The literal string of a key must
   never appear in either output.
+
+Vector store configuration (DO-07):
+
+* ``vector_store`` — pick between ``"sqlite_vec"`` (default,
+  ``SqliteVecStore``) and ``"brute_force"`` (``NumpyBruteForceStore``).
+  The composition root also falls back to ``brute_force`` automatically
+  when the host Python's SQLite cannot load extensions.
+* ``db_path`` — on-disk location of the ``sqlite-vec`` database. Defaults
+  to ``None`` so :func:`resolve_db_path` fills in the platform-default
+  path (``~/.local/share/simple-cli-coder-with-rag/db.sqlite``) at the
+  composition root. Override via the ``DB_PATH`` env var when the user
+  has a non-default data dir (CI, containerised installs, tests).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Provider = Literal["nvidia", "mistral", "minimax"]
+VectorStoreChoice = Literal["sqlite_vec", "brute_force"]
 
 
 class Settings(BaseSettings):
@@ -90,6 +104,21 @@ class Settings(BaseSettings):
     # ``EMBEDDING_LOCAL_FILES_ONLY`` env var (``0`` / ``1``).
     embedding_local_files_only: bool = True
 
+    # Vector store Strategy (DO-07). ``"sqlite_vec"`` is the default;
+    # the composition root falls back to ``"brute_force"`` automatically
+    # when ``SqliteVecStore.__init__`` raises
+    # :class:`VectorStoreBackendUnavailable` (host Python's SQLite build
+    # cannot load extensions). Override via the ``VECTOR_STORE`` env
+    # var to skip the sqlite-vec attempt altogether.
+    vector_store: VectorStoreChoice = "sqlite_vec"
+
+    # On-disk path for the ``sqlite-vec`` database. ``None`` (default)
+    # means "use the platform-default data dir + ``db.sqlite``"; the
+    # composition root resolves this via :func:`resolve_db_path`.
+    # Override via the ``DB_PATH`` env var to relocate the DB (CI,
+    # containerised installs, tests with ``tmp_path``).
+    db_path: Path | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -132,4 +161,24 @@ class Settings(BaseSettings):
         return self.__repr__()
 
 
-__all__ = ["Provider", "Settings"]
+def resolve_db_path(settings: Settings) -> Path:
+    """Return the on-disk DB path, falling back to the data dir default.
+
+    ``Settings.db_path`` is the explicit override (set via ``DB_PATH``).
+    ``None`` means "no override"; we then build the path from the
+    single source of truth in
+    :mod:`simple_cli_coder_with_rag.infrastructure.local_paths` so
+    ``--reset``, the DB default, and ``VECTOR_STORE=brute_force`` opt-in
+    all agree on where files live.
+    """
+    if settings.db_path is not None:
+        return settings.db_path
+    # Local import to dodge the circular dependency: ``settings`` is read
+    # before ``LocalPaths`` is needed elsewhere, and ``LocalPaths`` does
+    # not import ``Settings``.
+    from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
+
+    return LocalPaths.data_dir() / "db.sqlite"
+
+
+__all__ = ["Provider", "Settings", "VectorStoreChoice", "resolve_db_path"]
