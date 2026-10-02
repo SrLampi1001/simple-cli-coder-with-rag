@@ -17,10 +17,13 @@ Strategy), see [`docs/chunker-strategy.md`](./docs/chunker-strategy.md).
 
 - **Python ≥ 3.11**
 - **[`uv`](https://github.com/astral-sh/uv)** (package manager; replaces `pip` + `venv`)
-- A working API key for **at least one** of the supported LLM providers:
-  - [NVIDIA NIM](https://integrate.api.nvidia.com/) (`NVIDIA_API_KEY`)
-  - [Mistral La Plateforme](https://console.mistral.ai/) (`MISTRAL_API_KEY`)
-  - [MiniMax](https://minimax.io/) (`MINIMAX_API_KEY`)
+- A working API key for **at least one** of the supported LLM providers —
+  see [`docs/providers.md`](./docs/providers.md):
+  - [NVIDIA NIM](https://build.nvidia.com/)
+  - [Mistral La Plateforme](https://console.mistral.ai/)
+  - [MiniMax](https://minimax.io/)
+  - [Anthropic](https://console.anthropic.com/)
+  - [OpenAI](https://platform.openai.com/api-keys)
 
 > The CLI is synchronous — no Docker, no async runtime, no GPU required. The
 > embedding model (`bge-small-en-v1.5`, ~130 MB) downloads on first use and
@@ -52,52 +55,42 @@ uv run pytest -q            # should pass (no network required)
 
 ## Initialization
 
-The CLI reads three secrets from a `.env` file at the project root. Copy the
-example file and fill in the key(s) you have:
+Provider keys are **not** stored in `.env` anymore — they live in the
+gitignored registry file
+`~/.local/share/simple-cli-coder-with-rag/providers.json`.
+
+```bash
+uv run coder                 # first run seeds providers.json with 5 entries
+/providers                   # list configured providers + active one
+/connect openai              # prompts for the API key and validates it
+/provider openai             # activate it
+```
+
+`/connect <id>` prompts for the key (no echo), validates it with a ping
+round-trip, and writes it back. `/connect <id> --no-validate` skips the
+round-trip. Custom endpoints:
+`/connect --new <id> --adapter <openai|anthropic> --base-url <u> --model <m>`.
+
+Copy `.env.example` to `.env` only for the **non-provider** knobs
+(chunking, vector store, retrieval, editor sandbox):
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and set the API key for the provider you want to use. Example
-minimum config:
+### Supported providers
 
-```ini
-# Pick one provider and paste its key below. The other two can stay empty.
-NVIDIA_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-MISTRAL_API_KEY=
-MINIMAX_API_KEY=
-
-# Which provider to use at startup. One of: nvidia, mistral, minimax.
-DEFAULT_PROVIDER=nvidia
-```
-
-### Provider defaults
-
-The default model for each provider is verified to respond to chat
-completions on a real account. You can override the model with the
-`*_MODEL` env vars (or `CHAT_MODEL` for the REPL chat path specifically):
-
-| Provider   | Default model        | Also known to work                                                          |
-|------------|----------------------|-----------------------------------------------------------------------------|
-| NVIDIA     | `openai/gpt-oss-20b` | `nvidia/nemotron-3-super-120b-a12b`                                          |
-| Mistral    | `mistral-code-latest`| `codestral-latest`, `ministral-8b-latest`                                    |
-| MiniMax    | `MiniMax-M3`         | (Anthropic-SDK-compatible endpoint at `https://api.minimax.io/anthropic`)   |
-
-> `meta/llama-3.2-11b-vision-instruct` used to be the NVIDIA default — it is a
-> vision model whose outputs do not follow the chat/tool schema (it returned
-> empty replies and bogus tool calls), so it is no longer the default.
-
-> The earlier defaults (`meta/llama-3.1-70b-instruct`, `mistral-large-latest`)
-> were deprecated/removed by their providers and now return HTTP 410 / 403.
-> See [`.env.example`](./.env.example) for the full set of overrides.
+See [`docs/providers.md`](./docs/providers.md) for the full table (id,
+adapter, base URL, default model, where to get a key).
 
 ### First-run behavior
 
-- The CLI loads your `.env` automatically via `pydantic-settings`.
-- If the API key for `DEFAULT_PROVIDER` is missing, `coder` prints a friendly
-  error to **stderr** and exits with code `2`. The other two keys may stay
-  empty.
+- On the very first run the CLI writes
+  `~/.local/share/simple-cli-coder-with-rag/providers.json` with five
+  pre-populated providers (keys empty) and prints a one-line notice.
+- If no active provider is set, the REPL still starts; chat turns print
+  `No active provider. Run /connect <id> to add a key, then /provider <id>
+  to activate.` until you configure one.
 - At startup the embedding model (~130 MB) loads on a background thread —
   downloading on first use and cached under
   `~/.cache/simple-cli-coder-with-rag/models/`. Subsequent runs are offline;
@@ -154,6 +147,10 @@ included; turns added while it runs belong to a later `/learn`.
 | `/clear`  | Clear the visible screen.                              |
 | `/version`| Print the package version.                             |
 | `/learn`  | Compact the session into a JSON file and index it in the vector store (runs in the background). |
+| `/connect <id>` | Add/validate an API key for a provider (`--no-validate` to skip the ping). |
+| `/connect --new <id> --adapter <a> --base-url <u> --model <m>` | Register a custom provider. |
+| `/providers` | List providers (id, adapter, base URL, model, key set?) and the active one. |
+| `/provider <id>` | Activate a provider (live switch, no restart).   |
 
 ### One-off flags
 
@@ -206,17 +203,6 @@ useful knobs:
 
 | Variable                  | Default                                 | Purpose                                                       |
 |---------------------------|-----------------------------------------|---------------------------------------------------------------|
-| `DEFAULT_PROVIDER`        | `nvidia`                                | Which provider's adapter to wire into `AppState`.             |
-| `NVIDIA_API_KEY`          | *(empty)*                               | Required when `DEFAULT_PROVIDER=nvidia`.                      |
-| `MISTRAL_API_KEY`         | *(empty)*                               | Required when `DEFAULT_PROVIDER=mistral`.                     |
-| `MINIMAX_API_KEY`         | *(empty)*                               | Required when `DEFAULT_PROVIDER=minimax`.                     |
-| `NVIDIA_MODEL`            | `openai/gpt-oss-20b`                | Model used for chat when `DEFAULT_PROVIDER=nvidia`.           |
-| `MISTRAL_MODEL`           | `mistral-code-latest`                   | Model used for chat when `DEFAULT_PROVIDER=mistral`.          |
-| `MINIMAX_MODEL`           | `MiniMax-M3`                            | Model used for chat when `DEFAULT_PROVIDER=minimax`.          |
-| `CHAT_MODEL`              | *(empty)*                               | Overrides the per-provider default for the REPL chat path.    |
-| `NVIDIA_BASE_URL`         | *(empty)*                               | Override the NVIDIA endpoint (self-hosting).                  |
-| `MISTRAL_BASE_URL`        | *(empty)*                               | Override the Mistral endpoint (self-hosting).                 |
-| `MINIMAX_BASE_URL`        | *(empty)*                               | Override the MiniMax endpoint (self-hosting).                 |
 | `CHUNKER_STRATEGY`        | `fixed`                                 | `fixed` (sliding window) or `semantic` (one chunk per record).|
 | `VECTOR_STORE`            | `sqlite_vec`                            | `sqlite_vec` (persistent) or `brute_force` (in-memory).       |
 | `DB_PATH`                 | *(empty)*                               | Override the sqlite-vec DB location.                          |
@@ -230,7 +216,8 @@ useful knobs:
 | `EDITOR_ROOT`             | *(cwd at startup)*                      | Sandbox root for the LLM's file tools.                        |
 | `EDITOR_MAX_TOOL_ROUNDS`  | `1`                                     | Max tool-use rounds per chat turn.                            |
 
-> `repr(Settings(...))` and `str(settings)` mask every API key. Logs are
+> Provider keys live in `providers.json` and are wrapped in pydantic
+> `SecretStr`, so `repr` / `str` / `model_dump_json()` mask them. Logs are
 > file-only (under `~/.local/share/simple-cli-coder-with-rag/log/`) so
 > keys never end up in stdout/stderr while `prompt_toolkit` owns the
 > screen.

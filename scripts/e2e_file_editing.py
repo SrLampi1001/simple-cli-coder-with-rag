@@ -40,6 +40,11 @@ from simple_cli_coder_with_rag.application.file_editor import SandboxedFileEdito
 from simple_cli_coder_with_rag.application.knowledge_service import KnowledgeService
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
+from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
+from simple_cli_coder_with_rag.infrastructure.providers import (
+    ProviderRegistry,
+    UnknownProviderError,
+)
 from simple_cli_coder_with_rag.infrastructure.settings import Settings
 
 
@@ -59,9 +64,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--provider",
-        choices=("nvidia", "mistral", "minimax"),
         default=None,
-        help="override the active provider (default: settings.default_provider)",
+        help="override the active provider (default: providers.json active_provider_id)",
     )
     parser.add_argument(
         "--model",
@@ -71,26 +75,31 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        settings = Settings()
+        Settings()
     except RuntimeError as exc:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
 
-    if args.provider is not None:
-        settings.default_provider = args.provider  # type: ignore[assignment]
+    registry = ProviderRegistry(LocalPaths.data_dir() / "providers.json")
+    provider_id = args.provider or registry.active_provider_id
+    if not provider_id:
+        _fail("no active provider; run /provider <id> in the REPL or pass --provider")
+        return 2
 
     _step("Configuration")
-    print(f"  provider:   {settings.default_provider}")
-    key_attr = f"{settings.default_provider}_api_key"
-    if not getattr(settings, key_attr).get_secret_value():
-        _fail(f"no API key for provider {settings.default_provider!r}")
+    try:
+        config = registry.get(provider_id)
+    except UnknownProviderError:
+        _fail(f"unknown provider {provider_id!r}")
         return 2
-    _ok(f"API key for {settings.default_provider!r} is set")
+    print(f"  provider:   {provider_id}")
+    if not config.api_key.get_secret_value():
+        _fail(f"no API key for provider {provider_id!r} (run /connect {provider_id} in the REPL)")
+        return 2
+    _ok(f"API key for {provider_id!r} is set")
 
-    llm = build_llm_client(settings)
-    chat_model = args.model or (
-        settings.chat_model or getattr(settings, f"{settings.default_provider}_model")
-    )
+    llm = build_llm_client(config)
+    chat_model = args.model or config.default_model
     print(f"  chat model: {chat_model}")
 
     with tempfile.TemporaryDirectory() as tmp_str:
@@ -190,7 +199,7 @@ def main() -> int:
     # Done — print a structured summary as JSON for downstream tooling.
     # ----------------------------------------------------------------------
     summary: dict[str, Any] = {
-        "provider": settings.default_provider,
+        "provider": provider_id,
         "chat_model": chat_model,
         "tests": {
             "read": "PASS",

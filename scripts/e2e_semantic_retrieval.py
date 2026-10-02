@@ -49,6 +49,11 @@ from simple_cli_coder_with_rag.domain.vector_store import (
 )
 from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
+from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
+from simple_cli_coder_with_rag.infrastructure.providers import (
+    ProviderRegistry,
+    UnknownProviderError,
+)
 from simple_cli_coder_with_rag.infrastructure.settings import Settings
 from simple_cli_coder_with_rag.infrastructure.vector_stores import (
     NumpyBruteForceStore,
@@ -99,6 +104,7 @@ def _build_knowledge_service(
     chat_model: str,
     vector_store: VectorStore,
     embedder: FastembedEmbedder,
+    llm_client,
 ) -> KnowledgeService:
     """Build a fully-wired ``KnowledgeService`` for the E2E run.
 
@@ -107,7 +113,7 @@ def _build_knowledge_service(
     recall coordinator. The session store and the compactor are isolated
     per call so each test gets its own on-disk files.
     """
-    llm = build_llm_client(settings)
+    llm = llm_client
     session_store = SessionStore(root=vector_store_root() / "sessions")
     compactor = Compactor(llm=llm, compactor_model=chat_model)
 
@@ -160,9 +166,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--provider",
-        choices=("nvidia", "mistral", "minimax"),
         default=None,
-        help="override the active provider (default: settings.default_provider)",
+        help="override the active provider (default: providers.json active_provider_id)",
     )
     parser.add_argument(
         "--model",
@@ -177,18 +182,24 @@ def main() -> int:
         print(f"config error: {exc}", file=sys.stderr)
         return 2
 
-    if args.provider is not None:
-        settings.default_provider = args.provider  # type: ignore[assignment]
+    registry = ProviderRegistry(LocalPaths.data_dir() / "providers.json")
+    provider_id = args.provider or registry.active_provider_id
+    if not provider_id:
+        _fail("no active provider; run /provider <id> in the REPL or pass --provider")
+        return 2
 
     _step("Configuration")
-    key_attr = f"{settings.default_provider}_api_key"
-    if not getattr(settings, key_attr).get_secret_value():
-        _fail(f"no API key for provider {settings.default_provider!r}")
+    try:
+        config = registry.get(provider_id)
+    except UnknownProviderError:
+        _fail(f"unknown provider {provider_id!r}")
         return 2
-    chat_model = args.model or (
-        settings.chat_model or getattr(settings, f"{settings.default_provider}_model")
-    )
-    print(f"  provider:   {settings.default_provider}")
+    if not config.api_key.get_secret_value():
+        _fail(f"no API key for provider {provider_id!r} (run /connect {provider_id} in the REPL)")
+        return 2
+    llm_client = build_llm_client(config)
+    chat_model = args.model or config.default_model
+    print(f"  provider:   {provider_id}")
     print(f"  chat model: {chat_model}")
     print(f"  embedder:   {settings.embedding_model}")
     print(f"  recall_top_k:    {settings.recall_top_k}")
@@ -254,7 +265,9 @@ def main() -> int:
         # ------------------------------------------------------------------
         _step("Session A — conversation + /learn")
         session_a_id = "sess-A-" + str(int(time.time()))
-        knowledge = _build_knowledge_service(settings, chat_model, vector_store, embedder)
+        knowledge = _build_knowledge_service(
+            settings, chat_model, vector_store, embedder, llm_client
+        )
 
         for user_text, assistant_text in _SESSION_A_TURNS:
             knowledge._session_store.append(session_a_id, UserMessage(content=user_text))
@@ -364,7 +377,7 @@ def main() -> int:
     # Summary
     # ----------------------------------------------------------------------
     summary: dict[str, Any] = {
-        "provider": settings.default_provider,
+        "provider": provider_id,
         "chat_model": chat_model,
         "tests": {
             "learn_produced_chunks": "PASS",

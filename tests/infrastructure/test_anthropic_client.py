@@ -2,7 +2,7 @@
 
 Pinned by ``agent-development/02-llm-client-adapter/tests.md``. The Anthropic
 SDK is the only LLM SDK in the project's main dependency list, so this is the
-"happy path" adapter. The other adapter (``openai_compat``) is urllib-based.
+"happy path" adapter. The other adapter (``openai_client``) uses the official openai SDK.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from simple_cli_coder_with_rag.domain.messages import (
     ToolSpec,
     UserMessage,
 )
-from simple_cli_coder_with_rag.infrastructure.llm.anthropic_compat import (
-    AnthropicCompatLLMClient,
+from simple_cli_coder_with_rag.infrastructure.llm.anthropic_client import (
+    AnthropicLLMClient,
 )
 
 if TYPE_CHECKING:
@@ -47,7 +47,7 @@ def test_complete_returns_text(mocker: MockerFixture) -> None:
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.return_value = _stub_message("hi from mock")
 
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k", base_url="https://api.minimax.io/anthropic", default_model="MiniMax-M3"
     )
 
@@ -61,7 +61,7 @@ def test_complete_passes_messages_and_model(mocker: MockerFixture) -> None:
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.return_value = _stub_message("ok")
 
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k", base_url="https://api.minimax.io/anthropic", default_model="MiniMax-M3"
     )
     adapter.complete(
@@ -88,7 +88,7 @@ def test_complete_wraps_vendor_error(mocker: MockerFixture) -> None:
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.side_effect = _FakeAnthropicError("boom")
 
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k", base_url="https://api.minimax.io/anthropic", default_model="MiniMax-M3"
     )
 
@@ -101,7 +101,7 @@ def test_complete_with_tools_stub_returns_assistant_turn(mocker: MockerFixture) 
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.return_value = _stub_message("tool-aware reply")
 
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k", base_url="https://api.minimax.io/anthropic", default_model="MiniMax-M3"
     )
     turn = adapter.complete_with_tools(
@@ -118,7 +118,7 @@ def test_complete_with_tools_stub_returns_assistant_turn(mocker: MockerFixture) 
 def test_adapter_holds_one_sdk_instance(mocker: MockerFixture) -> None:
     fake_anthropic = mocker.patch("anthropic.Anthropic")
 
-    AnthropicCompatLLMClient(
+    AnthropicLLMClient(
         api_key="k",
         base_url="https://api.minimax.io/anthropic",
         default_model="MiniMax-M3",
@@ -130,7 +130,7 @@ def test_adapter_holds_one_sdk_instance(mocker: MockerFixture) -> None:
 def test_adapter_uses_provider_base_url(mocker: MockerFixture) -> None:
     fake_anthropic = mocker.patch("anthropic.Anthropic")
 
-    AnthropicCompatLLMClient(
+    AnthropicLLMClient(
         api_key="k",
         base_url="https://api.minimax.io/anthropic",
         default_model="MiniMax-M3",
@@ -149,7 +149,7 @@ def test_adapter_uses_auth_token_header(mocker: MockerFixture) -> None:
     """
     fake_anthropic = mocker.patch("anthropic.Anthropic")
 
-    AnthropicCompatLLMClient(
+    AnthropicLLMClient(
         api_key="minimax-key",
         base_url="https://api.minimax.io/anthropic",
         default_model="MiniMax-M3",
@@ -164,3 +164,19 @@ def test_adapter_uses_auth_token_header(mocker: MockerFixture) -> None:
 
 class _FakeAnthropicError(Exception):
     """Mimics a vendor ``anthropic.APIError`` (kept as Exception for portability)."""
+
+
+def test_complete_against_anthropic_com_endpoint(mocker: MockerFixture) -> None:
+    fake_anthropic = mocker.patch("anthropic.Anthropic")
+    fake_client = fake_anthropic.return_value
+    fake_client.messages.create.return_value = _stub_message("ok")
+
+    adapter = AnthropicLLMClient(
+        api_key="k",
+        base_url="https://api.anthropic.com",
+        default_model="claude-3-5-sonnet-latest",
+    )
+    adapter.complete([UserMessage(content="hi")], model="claude-3-5-sonnet-latest")
+
+    call = fake_anthropic.call_args
+    assert call.kwargs["base_url"] == "https://api.anthropic.com"

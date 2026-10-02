@@ -20,10 +20,13 @@ if TYPE_CHECKING:
     from simple_cli_coder_with_rag.domain.file_editor import FileEditor
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
+    from simple_cli_coder_with_rag.infrastructure.providers.registry import (
+        ProviderRegistry,
+    )
     from simple_cli_coder_with_rag.presentation.repl import Repl
 
 
-@dataclass(frozen=True)
+@dataclass
 class AppState:
     """Mutable application state passed to commands and the REPL.
 
@@ -33,9 +36,8 @@ class AppState:
     (DO-03 wires the chat loop; DO-04 wires the compactor).
 
     ``history`` is a list that is **mutated in place** by the REPL
-    (``history.append(...)``, ``history[:] = history[-cap:]``). Despite
-    the ``frozen=True`` dataclass, the list itself is mutable — the
-    dataclass just refuses to reassign the field to a different list.
+    (``history.append(...)``, ``history[:] = history[-cap:]``). ``llm``
+    and ``knowledge`` are reassigned in place by provider-switch commands.
 
     ``knowledge`` is wired by the composition root in ``cli.py`` once
     the active provider's adapter is built. It defaults to ``None`` so
@@ -71,6 +73,7 @@ class AppState:
     chunker: Chunker | None = None
     embedder: Embedder | None = None
     editor: FileEditor | None = None
+    provider_registry: ProviderRegistry | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +82,9 @@ class CommandContext:
 
     repl: Repl
     app_state: AppState
+    # Raw remainder of the input line after the command token ("" by default
+    # so existing zero-arg commands are unaffected).
+    args: str = ""
 
 
 @dataclass(frozen=True)

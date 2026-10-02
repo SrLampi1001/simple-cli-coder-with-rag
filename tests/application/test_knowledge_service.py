@@ -75,22 +75,12 @@ def test_chat_returns_llm_string(tmp_path: Path, mocker: MockerFixture) -> None:
     assert result == "the reply"
 
 
-def test_chat_uses_chat_model_from_settings(tmp_path: Path, mocker: MockerFixture) -> None:
-    """The ``model`` kwarg forwarded to ``complete_with_tools`` matches ``Settings.chat_model``."""
-    from pydantic import SecretStr
-
-    from simple_cli_coder_with_rag.infrastructure.settings import Settings
-
-    settings = Settings(
-        default_provider="nvidia",  # type: ignore[arg-type]
-        nvidia_api_key=SecretStr("nv"),
-        chat_model="settings-chat-model",
-    )
-
+def test_chat_uses_configured_chat_model(tmp_path: Path, mocker: MockerFixture) -> None:
+    """The ``model`` kwarg forwarded to ``complete_with_tools`` matches the chat model."""
     fake_llm = mocker.MagicMock()
     fake_llm.complete_with_tools.return_value = AssistantTurn(content="ok", tool_calls=[])
 
-    service = _make_service(tmp_path, fake_llm, chat_model=settings.chat_model)
+    service = _make_service(tmp_path, fake_llm, chat_model="settings-chat-model")
     service.chat("hi", history=[])
 
     assert fake_llm.complete_with_tools.call_args.kwargs["model"] == "settings-chat-model"

@@ -168,6 +168,14 @@ class KnowledgeService:
         # exactly the chunks that ``learn`` produced.
         self.last_chunks: list[Chunk] = []
 
+    def set_llm(self, llm: LLMClient) -> None:
+        """Swap the LLM adapter mid-session (provider switch).
+
+        Everything else (chunker, embedder, vector store, coordinator,
+        editor) is preserved — only the adapter changes.
+        """
+        self._llm = llm
+
     def chat(
         self,
         user_message: str,

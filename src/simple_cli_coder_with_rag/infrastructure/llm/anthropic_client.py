@@ -1,15 +1,17 @@
 """Anthropic-SDK-backed ``LLMClient`` adapter.
 
-Used by MiniMax, which exposes an Anthropic-compatible Messages endpoint at
-``https://api.minimax.io/anthropic``. The Anthropic Python SDK already ships
+Targets the official Anthropic Messages API and works with any
+Anthropic-compatible endpoint via ``base_url`` (e.g. MiniMax at
+``https://api.minimax.io/anthropic``). The Anthropic Python SDK already ships
 ``max_retries`` + exponential backoff, so we do not layer an extra retry
 library on top (per ``docs/development-tools.md`` §6 and §8).
 
-Auth scheme note: MiniMax's HTTP API expects ``Authorization: Bearer <key>``,
-not the Anthropic SDK's default ``x-api-key`` header. The SDK's ``auth_token``
-parameter sets the Bearer header, so we use it instead of ``api_key``. The
-mock tests in ``test_anthropic_compat_adapter.py`` confirm the adapter passes
-the key as ``auth_token``.
+Auth scheme note: we pass the key as ``auth_token`` (Bearer), not the
+SDK's default ``x-api-key`` header, because MiniMax's HTTP API requires
+``Authorization: Bearer <key>``; the same credential works against the
+official ``https://api.anthropic.com`` endpoint. The mock tests in
+``test_anthropic_client.py`` confirm the adapter passes the key as
+``auth_token``.
 
 DO-10 fully implements ``complete_with_tools``. The previous stub returned
 ``tool_calls=[]``; this version walks the response's content blocks,
@@ -54,7 +56,7 @@ from simple_cli_coder_with_rag.domain.messages import (
 )
 
 
-class AnthropicCompatLLMClient:
+class AnthropicLLMClient:
     """``LLMClient`` implementation backed by the Anthropic Python SDK."""
 
     def __init__(self, *, api_key: str, base_url: str, default_model: str) -> None:
@@ -254,4 +256,4 @@ def _tool_spec_to_anthropic(tool: ToolSpec) -> dict[str, Any]:
     }
 
 
-__all__ = ["AnthropicCompatLLMClient"]
+__all__ = ["AnthropicLLMClient"]

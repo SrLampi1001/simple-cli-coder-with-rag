@@ -97,13 +97,15 @@ class Repl:
         if not stripped.startswith("/"):
             self._handle_chat(stripped)
             return
-        token = stripped[1:].split(maxsplit=1)[0]
+        parts = stripped[1:].split(maxsplit=1)
+        token = parts[0]
+        rest = parts[1] if len(parts) > 1 else ""
         command = self._registry.get(token)
         if command is None:
             self._output(f"Unknown command: /{token}")
             self._output("Type /help for available commands.")
             return
-        result = command.execute(CommandContext(repl=self, app_state=self._app_state))
+        result = command.execute(CommandContext(repl=self, app_state=self._app_state, args=rest))
         if result.message:
             self._output(result.message)
 

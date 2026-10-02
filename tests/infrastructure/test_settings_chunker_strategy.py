@@ -15,19 +15,14 @@ Any other string is rejected at validation time so the user gets a clean
 from __future__ import annotations
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from simple_cli_coder_with_rag.infrastructure.settings import Settings
 
 
 def _settings(**overrides: object) -> Settings:
-    """Return a ``Settings`` instance with a non-empty active key."""
-    base: dict[str, object] = {
-        "default_provider": "nvidia",
-        "nvidia_api_key": SecretStr("nv"),
-        "mistral_api_key": SecretStr(""),
-        "minimax_api_key": SecretStr(""),
-    }
+    """Return a ``Settings`` instance."""
+    base: dict[str, object] = {}
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
 

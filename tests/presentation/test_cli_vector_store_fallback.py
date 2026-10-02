@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
-from pydantic import SecretStr
 
 from simple_cli_coder_with_rag.cli import _build_vector_store
 from simple_cli_coder_with_rag.domain.vector_store import (
@@ -39,12 +38,7 @@ if TYPE_CHECKING:
 
 def _settings(**overrides: object) -> Settings:
     """Return a ``Settings`` instance with a non-empty active key."""
-    base: dict[str, object] = {
-        "default_provider": "nvidia",
-        "nvidia_api_key": SecretStr("nv"),
-        "mistral_api_key": SecretStr(""),
-        "minimax_api_key": SecretStr(""),
-    }
+    base: dict[str, object] = {"vector_store": "sqlite_vec"}
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
 

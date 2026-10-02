@@ -46,6 +46,8 @@ from simple_cli_coder_with_rag.application.retrievers.base_retriever import (
 )
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.application.trivial_gate import TrivialGate
+from simple_cli_coder_with_rag.domain.llm_client import LLMError
+from simple_cli_coder_with_rag.domain.messages import AssistantTurn
 from simple_cli_coder_with_rag.domain.vector_store import (
     VectorStore,
     VectorStoreBackendUnavailable,
@@ -54,6 +56,7 @@ from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
+from simple_cli_coder_with_rag.infrastructure.providers import ProviderRegistry
 from simple_cli_coder_with_rag.infrastructure.retrievers.executor import (
     RetrievalExecutor,
 )
@@ -70,9 +73,12 @@ from simple_cli_coder_with_rag.infrastructure.vector_stores import (
 )
 from simple_cli_coder_with_rag.presentation.commands import AppState
 from simple_cli_coder_with_rag.presentation.commands.clear import ClearCommand
+from simple_cli_coder_with_rag.presentation.commands.connect import ConnectCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
 from simple_cli_coder_with_rag.presentation.commands.help import HelpCommand
 from simple_cli_coder_with_rag.presentation.commands.learn import LearnCommand
+from simple_cli_coder_with_rag.presentation.commands.provider import ProviderCommand
+from simple_cli_coder_with_rag.presentation.commands.providers import ProvidersCommand
 from simple_cli_coder_with_rag.presentation.commands.version import VersionCommand
 from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
 from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -99,6 +105,9 @@ def _build_registry() -> CommandRegistry:
     registry.register(ClearCommand())
     registry.register(VersionCommand())
     registry.register(LearnCommand())
+    registry.register(ConnectCommand())
+    registry.register(ProvidersCommand())
+    registry.register(ProviderCommand())
     return registry
 
 
@@ -154,24 +163,42 @@ def main(argv: list[str] | None = None) -> int:
 def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalExecutor | None]:
     """Instantiate Settings, build the active LLM client, and bundle into AppState.
 
-    Returns ``(None, None, None)`` if the active provider's API key is missing —
-    in that case the helper prints a friendly message to stderr (the only
-    place we write to stderr before ``prompt_toolkit`` takes over) and the
-    caller exits with code 2. On success, returns the wired ``RetrievalExecutor``
-    alongside ``settings`` and ``app_state`` so the caller can register
-    ``executor.shutdown`` as the REPL's ``on_exit`` callback (DO-08).
+    Never aborts on a missing provider: the REPL starts regardless so the
+    user can run ``/connect`` / ``/provider`` interactively (DO-11). Returns
+    ``(None, None, None)`` only on unexpected Settings validation failure.
     """
     try:
         settings = Settings()
     except RuntimeError as exc:
-        # Active provider's key is missing. This is the only stderr write
-        # before the REPL takes over.
+        # Defensive: settings construction should not fail, but keep the
+        # friendly stderr path for any future validation error.
         print(f"coder: {exc}", file=sys.stderr)
         return None, None, None
 
-    llm_client = build_llm_client(settings)
-    chat_model = _resolve_chat_model(settings)
-    compactor_model = _resolve_compactor_model(settings)
+    try:
+        provider_registry = ProviderRegistry(LocalPaths.data_dir() / "providers.json")
+    except OSError as exc:
+        print(f"cannot write providers.json: {exc}", file=sys.stderr)
+        provider_registry = None
+
+    if provider_registry is not None and provider_registry.was_seeded:
+        print(
+            f"wrote {provider_registry.path} with 5 pre-populated providers "
+            "(keys empty; use /connect <id> to add one)"
+        )
+
+    if provider_registry is not None and provider_registry.active_provider_id:
+        active = provider_registry.active()
+        llm_client = build_llm_client(active)
+        chat_model = active.default_model
+        compactor_model = active.default_model
+    else:
+        # Graceful no-provider path: the REPL still starts so the user can
+        # run /connect + /provider. Chat turns raise LLMError with a
+        # friendly, actionable message instead of crashing.
+        llm_client = _NoProviderLLMClient()
+        chat_model = ""
+        compactor_model = ""
 
     # Session store and compactor are wired *before* the KnowledgeService so
     # the service receives both in its constructor. The session id is
@@ -260,6 +287,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         chunker=chunker,
         embedder=embedder,
         editor=editor,
+        provider_registry=provider_registry,
     )
     return settings, app_state, retrieval_executor
 
@@ -291,30 +319,25 @@ def _build_vector_store(settings: Settings) -> VectorStore:
         return NumpyBruteForceStore()
 
 
-def _resolve_chat_model(settings: Settings) -> str:
-    """Return the model name to pass to ``LLMClient.complete`` for chat turns.
+class _NoProviderLLMClient:
+    """Placeholder ``LLMClient`` used when no provider is active yet.
 
-    ``settings.chat_model`` is the explicit override (set via the
-    ``CHAT_MODEL`` env var). An empty string means "no override"; in that
-    case we fall back to the active provider's per-provider default so the
-    REPL still has a usable model out of the box.
+    Keeps the REPL alive (``/connect``, ``/providers``, ``/provider`` all
+    work) while making every LLM call fail with an actionable one-line
+    ``LLMError`` the chat loop surfaces gracefully.
     """
-    if settings.chat_model:
-        return settings.chat_model
-    return getattr(settings, f"{settings.default_provider}_model")
 
+    def complete(self, messages: list, *, model: str) -> str:
+        raise LLMError(
+            "No active provider. Run `/connect <id>` to add a key, "
+            "then `/provider <id>` to activate."
+        )
 
-def _resolve_compactor_model(settings: Settings) -> str:
-    """Return the model name to pass to ``LLMClient.complete`` from the compactor.
-
-    Mirrors :func:`_resolve_chat_model` but reads
-    :attr:`Settings.compactor_model` instead — empty string falls back to
-    the active provider's per-provider default so a user who never sets
-    ``COMPACTOR_MODEL`` still gets a working compaction pipeline.
-    """
-    if settings.compactor_model:
-        return settings.compactor_model
-    return getattr(settings, f"{settings.default_provider}_model")
+    def complete_with_tools(self, messages: list, *, model: str, tools: list) -> AssistantTurn:
+        raise LLMError(
+            "No active provider. Run `/connect <id>` to add a key, "
+            "then `/provider <id>` to activate."
+        )
 
 
 def _reset_local_data() -> int:

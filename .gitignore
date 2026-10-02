@@ -57,3 +57,6 @@ Thumbs.db
 
 # AI sessions
 /coding-assistance/json-sessions/
+# Provider registry (DO-11)
+providers.json
+**/providers.json

@@ -1,9 +1,9 @@
-"""Tests for ``AnthropicCompatLLMClient.complete_with_tools`` (DO-10).
+"""Tests for ``AnthropicLLMClient.complete_with_tools`` (DO-10).
 
 Pinned by ``agent-development/10-file-editing/tests.md``.
 
 Replaces the ``test_complete_with_tools_stub_returns_assistant_turn`` stub
-from DO-02 (now removed from ``test_anthropic_compat_adapter.py``). The
+from DO-02 (now removed from ``test_anthropic_client_adapter.py``). The
 adapter must:
 
 * Call ``anthropic.Anthropic.messages.create(...)`` with the Anthropic
@@ -32,8 +32,8 @@ from simple_cli_coder_with_rag.domain.messages import (
     ToolSpec,
     UserMessage,
 )
-from simple_cli_coder_with_rag.infrastructure.llm.anthropic_compat import (
-    AnthropicCompatLLMClient,
+from simple_cli_coder_with_rag.infrastructure.llm.anthropic_client import (
+    AnthropicLLMClient,
 )
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class _FakeAnthropicError(Exception):
 
 def _make_adapter(
     mocker: MockerFixture, response: MagicMock
-) -> tuple[AnthropicCompatLLMClient, MagicMock]:
+) -> tuple[AnthropicLLMClient, MagicMock]:
     """Build an adapter whose SDK client returns ``response``.
 
     Returns ``(adapter, fake_client)`` so the test can introspect the
@@ -92,7 +92,7 @@ def _make_adapter(
     fake_anthropic = mocker.patch("anthropic.Anthropic")
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.return_value = response
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k",
         base_url="https://api.minimax.io/anthropic",
         default_model="MiniMax-M3",
@@ -157,7 +157,7 @@ def test_complete_with_tools_wraps_api_error(mocker: MockerFixture) -> None:
     fake_client = fake_anthropic.return_value
     fake_client.messages.create.side_effect = _FakeAnthropicError("boom")
 
-    adapter = AnthropicCompatLLMClient(
+    adapter = AnthropicLLMClient(
         api_key="k",
         base_url="https://api.minimax.io/anthropic",
         default_model="MiniMax-M3",
