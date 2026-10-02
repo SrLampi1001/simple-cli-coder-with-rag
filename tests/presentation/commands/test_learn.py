@@ -1,5 +1,6 @@
 """Tests for ``LearnCommand``. Pinned by
-``agent-development/04-learn-compaction/tests.md``.
+``agent-development/04-learn-compaction/tests.md`` and extended by
+``agent-development/05-chunker-strategy/tests.md``.
 """
 
 from __future__ import annotations
@@ -39,10 +40,10 @@ def _make_context(app_state: AppState) -> CommandContext:
     return CommandContext(repl=_StubRepl(), app_state=app_state)
 
 
-def test_learn_command_prints_count(mocker: MockerFixture) -> None:
-    """``learn`` returns a message that starts with ``"learned "`` (chunk count is a stub)."""
+def test_learn_command_passes_only_session_id(mocker: MockerFixture) -> None:
+    """``LearnCommand`` calls ``knowledge.learn(session_id)`` with one positional arg."""
     knowledge = mocker.MagicMock()
-    knowledge.learn.return_value = None
+    knowledge.learn.return_value = 3
 
     app_state = AppState(
         version=__version__,
@@ -54,18 +55,14 @@ def test_learn_command_prints_count(mocker: MockerFixture) -> None:
     result = LearnCommand().execute(_make_context(app_state))
 
     assert result.action == "continue"
-    assert result.message is not None
-    assert result.message.startswith("learned ")
-    knowledge.learn.assert_called_once()
-    args, _ = knowledge.learn.call_args
-    assert args[0] == "sid"
-    assert list(args[1]) == [UserMessage(content="a"), AssistantMessage(content="b")]
+    assert result.message == "learned 3 chunks"
+    knowledge.learn.assert_called_once_with("sid")
 
 
 def test_learn_command_does_not_exit(mocker: MockerFixture) -> None:
     """``learn`` must not terminate the REPL, even when it succeeds."""
     knowledge = mocker.MagicMock()
-    knowledge.learn.return_value = None
+    knowledge.learn.return_value = 0
 
     app_state = AppState(
         version=__version__,
@@ -128,3 +125,84 @@ def test_learn_command_is_registered() -> None:
 
     assert registry.get("learn") is not None
     assert LearnCommand.name == "learn"
+
+
+def test_learn_command_persists_history_to_session_store(
+    mocker: MockerFixture,
+) -> None:
+    """``LearnCommand`` re-persists in-memory history before invoking ``learn``.
+
+    This is the defensive idempotent path: the REPL also persists each
+    turn, but ``LearnCommand`` does it again so a ``/learn`` invoked
+    out-of-order (or after a process restart that lost the in-memory
+    append) still works.
+    """
+    from pathlib import Path
+
+    from simple_cli_coder_with_rag.application.session_store import SessionStore
+
+    knowledge = mocker.MagicMock()
+    knowledge.learn.return_value = 2
+
+    store = SessionStore(Path("/tmp"))
+    history = [
+        UserMessage(content="hello"),
+        AssistantMessage(content="hi back"),
+    ]
+    app_state = AppState(
+        version=__version__,
+        knowledge=knowledge,  # type: ignore[arg-type]
+        session_id="sid",
+        history=history,
+        session_store=store,
+    )
+
+    # Spy on ``SessionStore.append`` so we can assert the call.
+    append_calls: list[tuple[str, str]] = []
+
+    def fake_append(session_id: str, msg: object) -> None:
+        append_calls.append((session_id, msg.content))  # type: ignore[attr-defined]
+
+    mocker.patch.object(store, "append", side_effect=fake_append)
+    mocker.patch.object(store, "read", return_value=[])
+
+    LearnCommand().execute(_make_context(app_state))
+
+    assert append_calls == [("sid", "hello"), ("sid", "hi back")]
+    knowledge.learn.assert_called_once_with("sid")
+
+
+def test_learn_command_skips_already_persisted_messages(
+    mocker: MockerFixture,
+) -> None:
+    """``LearnCommand`` does not re-append messages already on disk."""
+    from pathlib import Path
+
+    from simple_cli_coder_with_rag.application.session_store import SessionStore
+    from simple_cli_coder_with_rag.domain.messages import UserMessage
+
+    knowledge = mocker.MagicMock()
+    knowledge.learn.return_value = 1
+
+    store = SessionStore(Path("/tmp"))
+    app_state = AppState(
+        version=__version__,
+        knowledge=knowledge,  # type: ignore[arg-type]
+        session_id="sid",
+        history=[UserMessage(content="already-there")],
+        session_store=store,
+    )
+
+    append_calls: list[tuple[str, str]] = []
+
+    def fake_append(session_id: str, msg: object) -> None:
+        append_calls.append((session_id, msg.content))  # type: ignore[attr-defined]
+
+    mocker.patch.object(store, "append", side_effect=fake_append)
+    # ``read`` returns the same message → LearnCommand skips the append.
+    mocker.patch.object(store, "read", return_value=[UserMessage(content="already-there")])
+
+    LearnCommand().execute(_make_context(app_state))
+
+    assert append_calls == []  # nothing appended
+    knowledge.learn.assert_called_once_with("sid")

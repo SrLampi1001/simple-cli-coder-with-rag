@@ -5,32 +5,45 @@ layer) and the LLM-backed ``LLMClient`` Protocol (domain layer). It
 exposes three operations:
 
 * :meth:`KnowledgeService.chat` — plain chat turn (DO-03).
-* :meth:`KnowledgeService.learn` — append the in-memory history to the
-  on-disk session, compact it via the compactor, and persist the result
-  (DO-04).
+* :meth:`KnowledgeService.learn` — read the on-disk session, compact it
+  via the compactor, chunk it via the Strategy-picked chunker, and
+  return the chunk count (DO-04 + DO-05). DO-06 embeds the chunks and
+  DO-07 persists them; this facade exposes the chunks via
+  :attr:`last_chunks` for those stages.
 * :meth:`KnowledgeService.recall` — return relevant chunks; a stub until
   DO-09 wires the vector store.
 
 Architectural notes:
 
 * This module imports from :mod:`domain` and from other ``application``
-  modules (the compactor and the session store). It does **not** import
-  from :mod:`infrastructure` — no vendor SDKs and no ``Settings`` type.
-  The composition root in :mod:`simple_cli_coder_with_rag.cli` resolves
-  ``chat_model`` / ``compactor_model`` from ``Settings`` and passes the
-  resolved strings into the constructor.
+  modules (the compactor, the chunkers, and the session store). It does
+  **not** import from :mod:`infrastructure` — no vendor SDKs and no
+  ``Settings`` type. The composition root in
+  :mod:`simple_cli_coder_with_rag.cli` resolves ``chat_model`` /
+  ``compactor_model`` from ``Settings`` and passes the resolved strings
+  into the constructor.
 * ``LLMError`` is **not** caught here. The REPL catches it and prints a
   one-line message; any wrapping would only duplicate work and risk
   swallowing the wrong exception type.
 * ``CompactionError`` is likewise propagated verbatim so the REPL sees a
   single failure type.
+* Message persistence happens in the REPL (one ``session_store.append``
+  per chat turn). ``learn`` therefore reads the full transcript from
+  disk via :class:`SessionStore` — it does not need an in-memory
+  message list to be passed in.
 """
 
 from __future__ import annotations
 
+from simple_cli_coder_with_rag.application.chunkers import (
+    FixedSizeChunker,
+    SemanticChunker,
+)
 from simple_cli_coder_with_rag.application.compactor import Compactor
 from simple_cli_coder_with_rag.application.prompts import build_chat_messages
 from simple_cli_coder_with_rag.application.session_store import SessionStore
+from simple_cli_coder_with_rag.domain.chunk import Chunk
+from simple_cli_coder_with_rag.domain.chunker import Chunker
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient
 from simple_cli_coder_with_rag.domain.messages import Message
 
@@ -44,11 +57,18 @@ class KnowledgeService:
         chat_model: str,
         session_store: SessionStore,
         compactor: Compactor,
+        chunker: Chunker,
     ) -> None:
         self._llm = llm
         self._chat_model = chat_model
         self._session_store = session_store
         self._compactor = compactor
+        self._chunker = chunker
+        # Most recent ``chunk`` result, populated by ``learn``. ``None``
+        # before the first ``/learn``. DO-06 (embedder) and DO-07
+        # (vector store) read this so they can embed and persist
+        # exactly the chunks that ``learn`` produced.
+        self.last_chunks: list[Chunk] = []
 
     def chat(self, user_message: str, history: list[Message]) -> str:
         """Send ``user_message`` (with prior ``history``) to the LLM and return the reply.
@@ -59,43 +79,50 @@ class KnowledgeService:
         messages = build_chat_messages(user_message, history, recalled=[])
         return self._llm.complete(messages, model=self._chat_model)
 
-    def learn(self, session_id: str, messages: list[Message]) -> None:
-        """Persist ``messages`` to disk and write the compacted JSON for ``session_id``.
+    def learn(self, session_id: str) -> int:
+        """Compact, chunk, and persist the on-disk session for ``session_id``.
 
         Algorithm:
 
-        1. Read the existing on-disk transcript (returns ``[]`` on a fresh
+        1. Read the on-disk transcript (returns ``[]`` on a fresh
            session).
-        2. Append each message in ``messages`` whose ``(role, content)`` is
-           not already present. This is the idempotency hook — repeated
-           ``/learn`` calls do not duplicate lines.
-        3. Re-read the full transcript (existing + newly appended) and ask
-           the compactor for a structured :class:`CompactedSession`. The
-           compactor short-circuits on an empty list without contacting the
-           LLM.
-        4. Persist the compacted document via ``write_compacted`` (which
-           overwrites any prior file — the second ``/learn`` replaces the
-           first).
+        2. Ask the compactor for a structured :class:`CompactedSession`.
+           The compactor short-circuits on an empty list without
+           contacting the LLM.
+        3. Persist the compacted document via ``write_compacted`` (which
+           overwrites any prior file — the second ``/learn`` replaces
+           the first).
+        4. Chunk the compacted document with the configured Strategy
+           chunker. Store the result on :attr:`last_chunks` and return
+           ``len(chunks)`` so the caller (``LearnCommand``) can display
+           the count.
 
         ``LLMError`` and :class:`~simple_cli_coder_with_rag.application.compactor.CompactionError`
         propagate verbatim.
         """
-        existing = self._session_store.read(session_id)
-        seen: set[tuple[str, str]] = {(m.role, m.content) for m in existing}
-        for msg in messages:
-            key = (msg.role, msg.content)
-            if key in seen:
-                continue
-            self._session_store.append(session_id, msg)
-            seen.add(key)
-
         all_messages = self._session_store.read(session_id)
         compacted = self._compactor.compact(session_id, all_messages)
         self._session_store.write_compacted(session_id, compacted)
+        self.last_chunks = self._chunker.chunk(compacted)
+        return len(self.last_chunks)
 
     def recall(self, query: str) -> list[str]:
         """Return the most relevant chunks for ``query``. Filled in by DO-09."""
         return []
 
 
-__all__ = ["KnowledgeService"]
+def build_chunker(strategy: str) -> Chunker:
+    """Resolve a chunker Strategy from ``strategy``.
+
+    Pulled out of the composition root so unit tests can exercise the
+    same selection logic without spinning up a Settings instance. New
+    strategies are added by extending the ``if`` chain here.
+    """
+    if strategy == "semantic":
+        return SemanticChunker()
+    if strategy == "fixed":
+        return FixedSizeChunker()
+    raise ValueError(f"unknown chunker strategy: {strategy!r}")
+
+
+__all__ = ["KnowledgeService", "build_chunker"]

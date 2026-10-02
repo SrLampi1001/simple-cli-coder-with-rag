@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         KnowledgeService,
     )
     from simple_cli_coder_with_rag.application.session_store import SessionStore
+    from simple_cli_coder_with_rag.domain.chunker import Chunker
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
     from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -58,6 +59,7 @@ class AppState:
     history_cap: int = 20
     session_id: str = ""
     session_store: SessionStore | None = None
+    chunker: Chunker | None = None
 
 
 @dataclass(frozen=True)

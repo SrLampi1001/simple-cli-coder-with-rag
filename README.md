@@ -8,6 +8,8 @@ errors can be retrieved automatically on the next prompt.
 For the project goals, design patterns, and architectural overview, see
 [`OBJECTIVES.md`](./OBJECTIVES.md). For implementation choices and tool
 versions, see [`docs/development-tools.md`](./docs/development-tools.md).
+For chunker configuration (`CHUNKER_STRATEGY` and how to add a new
+Strategy), see [`docs/chunker-strategy.md`](./docs/chunker-strategy.md).
 
 ---
 

@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     # ``COMPACTOR_MODEL`` env var.
     compactor_model: str = ""
 
+    # Chunking strategy picked by the composition root for ``/learn``.
+    # ``"fixed"`` — ``FixedSizeChunker`` (default, sliding window).
+    # ``"semantic"`` — ``SemanticChunker`` (one chunk per record).
+    # Override via the ``CHUNKER_STRATEGY`` env var; any other value is
+    # rejected at validation time so the user gets a clean
+    # ``ValidationError`` instead of a deferred ``KeyError`` in the REPL.
+    chunker_strategy: Literal["fixed", "semantic"] = "fixed"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

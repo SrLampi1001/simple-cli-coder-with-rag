@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from simple_cli_coder_with_rag.application.chunkers.fixed_size import FixedSizeChunker
 from simple_cli_coder_with_rag.application.compactor import Compactor
 from simple_cli_coder_with_rag.application.knowledge_service import KnowledgeService
 from simple_cli_coder_with_rag.application.session_store import SessionStore
@@ -29,7 +30,8 @@ def _make_service(
 
     The chat-path tests only exercise ``KnowledgeService.chat``; the compactor
     and the session store are real but never invoked, so a single ``fake_llm``
-    shared between them is safe.
+    shared between them is safe. ``FixedSizeChunker`` is the default Strategy
+    picked by the composition root.
     """
     store = SessionStore(tmp_path)
     compactor = Compactor(llm=fake_llm, compactor_model="m")
@@ -38,6 +40,7 @@ def _make_service(
         chat_model=chat_model,
         session_store=store,
         compactor=compactor,
+        chunker=FixedSizeChunker(),
     )
 
 

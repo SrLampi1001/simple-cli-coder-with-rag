@@ -20,7 +20,10 @@ import sys
 
 from simple_cli_coder_with_rag import __version__
 from simple_cli_coder_with_rag.application.compactor import Compactor
-from simple_cli_coder_with_rag.application.knowledge_service import KnowledgeService
+from simple_cli_coder_with_rag.application.knowledge_service import (
+    KnowledgeService,
+    build_chunker,
+)
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
@@ -117,12 +120,14 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
     session_store = SessionStore(root=LocalPaths.data_dir() / "sessions")
     session_id = session_store.current_id()
     compactor = Compactor(llm=llm_client, compactor_model=compactor_model)
+    chunker = build_chunker(settings.chunker_strategy)
 
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
         session_store=session_store,
         compactor=compactor,
+        chunker=chunker,
     )
     app_state = AppState(
         version=__version__,
@@ -130,6 +135,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         knowledge=knowledge,
         session_id=session_id,
         session_store=session_store,
+        chunker=chunker,
     )
     return settings, app_state
 
