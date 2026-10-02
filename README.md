@@ -154,9 +154,10 @@ included; turns added while it runs belong to a later `/learn`.
 | `/connect --new <id> --adapter <a> --base-url <u> --model <m>` | Register a custom provider. |
 | `/providers` | List providers (id, adapter, base URL, model, key set?) and the active one. |
 | `/provider <id>` | Activate a provider (live switch, no restart).   |
-| `/memory` | Show the active conversation window (session id, kept turns, last user/assistant). |
-| `/chats`  | List saved sessions on disk by id with last activity and message count. |
+| `/memory` | Show the active conversation window (full session id, kept turns, last user/assistant). |
+| `/chats`  | List saved sessions on disk by id (full 32-char id, last activity, message count). |
 | `/resume <session-id>` | Resume a saved chat by id; loads its last 10 messages and continues the conversation. |
+| `/new`    | Start a fresh session id (same REPL, empty history); previous session stays on disk for `/resume`. |
 
 ### One-off flags
 
@@ -188,20 +189,24 @@ the last `INT_HISTORY_CAP` *turns* (= the last
 `2 * INT_HISTORY_CAP` messages) on every turn; the full transcript
 stays on disk for `/chats` and `/resume <id>` to read back.
 
-Three slash commands drive the saved-chat flow:
+Four slash commands drive the saved-chat flow:
 
-* **`/memory`** — show the active window (session id, kept turns,
-  last user / assistant).
-* **`/chats`** — list every saved session on disk (short id, last
-  activity, message count), sorted by most recently active first.
-  The trailing `active: <id>` line is the session the REPL is
-  currently writing to.
+* **`/memory`** — show the active window (full 32-char session id,
+  kept turns, last user / assistant). The id is shown verbatim so
+  you can copy-paste it straight into `/resume <id>`.
+* **`/chats`** — list every saved session on disk (full 32-char
+  id, last activity, message count), sorted by most recently active
+  first. The trailing `active: <id>` line is the session the REPL
+  is currently writing to.
 * **`/resume <session-id>`** — load the last 10 messages of a
   saved session into the active context and continue. New messages
   you type after `/resume` are appended to the same `<id>.jsonl`,
   so the conversation continues as if it had never been paused.
   `/resume` is a synchronous load-from-disk — no LLM call, no
   compactor round-trip, no blocking pause.
+* **`/new`** — start a fresh session id (same REPL, empty
+  history). The previous session stays on disk for `/resume` to
+  read back at any point.
 
 See [`docs/session-memory.md`](./docs/session-memory.md) for the
 full on-disk layout, the recovery flow after a restart, and the

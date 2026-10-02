@@ -79,6 +79,7 @@ from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
 from simple_cli_coder_with_rag.presentation.commands.help import HelpCommand
 from simple_cli_coder_with_rag.presentation.commands.learn import LearnCommand
 from simple_cli_coder_with_rag.presentation.commands.memory import MemoryCommand
+from simple_cli_coder_with_rag.presentation.commands.new import NewCommand
 from simple_cli_coder_with_rag.presentation.commands.provider import ProviderCommand
 from simple_cli_coder_with_rag.presentation.commands.providers import ProvidersCommand
 from simple_cli_coder_with_rag.presentation.commands.resume import ResumeCommand
@@ -114,6 +115,7 @@ def _build_registry() -> CommandRegistry:
     registry.register(MemoryCommand())
     registry.register(ChatsCommand())
     registry.register(ResumeCommand())
+    registry.register(NewCommand())
     return registry
 
 

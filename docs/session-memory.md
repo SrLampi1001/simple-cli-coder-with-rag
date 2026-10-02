@@ -77,7 +77,8 @@ outside `[1, 100]` are rejected at boot.
 Prints the active conversation window off `AppState` directly:
 
 ```
-session:    abc12345
+session:    abc1234567deadbeefabc1234567deadbe
+  (short:   abc12345)
 turns:      5 / 10
 messages:   10
 last user:  hi there
@@ -87,7 +88,10 @@ last assistant: hello! how can I help?
 The values are pinned by
 `tests/presentation/commands/test_memory.py`:
 
-* `session` is the first 8 chars of `app_state.session_id`.
+* `session` is the **full** `app_state.session_id` (32 chars) so
+  you can copy-paste it straight into `/resume <id>`. The short
+  preview line underneath is a quick visual cue; it is not the
+  authoritative id.
 * `turns` is `len(history) // 2` — i.e. the number of completed
   user/assistant pairs in the active window.
 * `messages` is `len(history)`.
@@ -104,25 +108,43 @@ Lists every saved session on disk via
 `SessionStore.list_sessions()`:
 
 ```
-session id         last activity   messages
-abc1234567...       just now        18
-a1b2c3d4ef...      3m ago          38
-5e6f7g8h9i...       yesterday       204
+session id                          last activity   messages
+abc1234567deadbeefabc1234567deadbe     just now        18
+a1b2c3d4ef5678901234567890123456      3m ago          38
+5e6f7g8h9i0k1l2m3n4o6p7q8r9s0t1u      yesterday       204
 ...
-active: abc1234567deadbeef
+active: abc1234567deadbeefabc1234567deadbe
 ```
 
-The table is sorted by mtime descending (most recently active
-first). The `last activity` column uses humanised relative-time
-rendering (`just now`, `Xm ago`, `Xh ago`, `yesterday`, `Xd ago`,
-`<YYYY-MM-DD>` for anything older than a week). The trailing
-`active: <id>` line is the session the REPL is currently writing
-to.
+The `session id` column shows the **full** 32-char UUIDv4 hex —
+the same value `/resume <id>` accepts, so you can copy-paste
+straight from this table into `/resume`. The table is sorted by
+mtime descending (most recently active first). The `last activity`
+column uses humanised relative-time rendering (`just now`, `Xm
+ago`, `Xh ago`, `yesterday`, `Xd ago`, `<YYYY-MM-DD>` for anything
+older than a week). The trailing `active: <id>` line is the
+session the REPL is currently writing to.
 
 The listing is metadata-only — message bodies are never parsed.
 The implementation scans the session root, counts non-empty lines,
 and reads `st_mtime`, so `/chats` stays cheap even on directories
 with hundreds of sessions.
+
+### `/new`
+
+Generates a fresh `session_id` (UUIDv4 hex), clears the in-memory
+history, and resets the persistence pointer. Subsequent chat turns
+persist to the new `<id>.jsonl`. The previous session's transcript
+stays on disk — you can `/resume <old-id>` to come back.
+
+```
+>>> /new
+started new session 002f919c2b474888bd1e4947a251780e (was abc1234567deadbeefabc1234567deadbe).
+>>>
+```
+
+The full old id is included in the response so you can copy it
+for a later `/resume` without hunting through `/chats`.
 
 ### `/resume <session-id>`
 
