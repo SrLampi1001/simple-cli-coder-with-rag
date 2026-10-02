@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_serializer, field_validator
 
 AdapterKind = Literal["openai", "anthropic"]
 
@@ -33,6 +33,20 @@ class ProviderConfig(BaseModel):
         if not value.startswith("https://"):
             raise ValueError("base_url must start with 'https://'")
         return value
+
+    @field_serializer("api_key")
+    def _dump_api_key(self, value: SecretStr) -> str:
+        """Persist the real secret to ``providers.json`` so it survives restart.
+
+        ``SecretStr``'s default ``model_dump_json`` masks the value to
+        ``"**********"``, which round-trips back as the literal string
+        ``"**********"`` on disk — every subsequent LLM call then sends
+        ``Bearer **********`` and gets ``401 Unauthorized``. We override
+        here so the JSON registry actually stores the key. ``repr`` and
+        ``str`` still mask via ``SecretStr``'s default behaviour, so logs
+        and debug printing remain safe.
+        """
+        return value.get_secret_value()
 
 
 class ProvidersFile(BaseModel):
