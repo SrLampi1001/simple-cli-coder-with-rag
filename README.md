@@ -31,7 +31,7 @@ Strategy), see [`docs/chunker-strategy.md`](./docs/chunker-strategy.md).
 ## Installation (git clone, no deployment)
 
 ```bash
-git clone https://github.com/<your-org>/simple-cli-coder-with-rag.git
+git clone https://github.com/SrLampi1001/simple-cli-coder-with-rag.git
 cd simple-cli-coder-with-rag
 uv sync
 ```
