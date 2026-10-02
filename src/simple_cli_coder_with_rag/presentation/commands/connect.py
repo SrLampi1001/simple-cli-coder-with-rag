@@ -106,6 +106,19 @@ class ConnectCommand:
                 )
 
         registry.upsert(provider_id, candidate)
+
+        # If this provider is currently active, the running adapter still
+        # holds the previous key — rebuild it live so the next chat turn
+        # uses the key the user just entered.
+        if registry.active_provider_id == provider_id:
+            fresh = build_llm_client(candidate)
+            context.app_state.llm = fresh
+            if context.app_state.knowledge is not None:
+                context.app_state.knowledge.set_llm(fresh)
+                context.app_state.knowledge.set_model(
+                    candidate.default_model, candidate.default_model
+                )
+
         if ns.no_validate:
             return CommandResult(
                 message=(

@@ -168,3 +168,25 @@ def test_connect_does_not_echo_key(tmp_path: Path, mocker: MockerFixture) -> Non
     result = ConnectCommand().execute(_context("openai", registry))
 
     assert "sk-test" not in (result.message or "")
+
+
+def test_connect_on_active_provider_rebuilds_live_client(
+    tmp_path: Path, mocker: MockerFixture
+) -> None:
+    """After /connect on the active provider, the running adapter must hold the NEW key."""
+    registry = ProviderRegistry(tmp_path / "providers.json")
+    registry.set_active("openai")
+    fresh_client = mocker.MagicMock()
+    fresh_client.complete.return_value = "pong"
+    mocker.patch(
+        "simple_cli_coder_with_rag.presentation.commands.connect.build_llm_client",
+        return_value=fresh_client,
+    )
+    mocker.patch("getpass.getpass", return_value="sk-new")
+
+    app_state = AppState(version=__version__, provider_registry=registry, llm=mocker.MagicMock())
+    context = CommandContext(repl=None, app_state=app_state, args="openai")  # type: ignore[arg-type]
+
+    ConnectCommand().execute(context)
+
+    assert app_state.llm is fresh_client
