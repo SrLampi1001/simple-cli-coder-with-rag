@@ -33,6 +33,7 @@ class ProviderCommand:
         context.app_state.llm = client
         if context.app_state.knowledge is not None:
             context.app_state.knowledge.set_llm(client)
+            context.app_state.knowledge.set_model(config.default_model, config.default_model)
 
         message = f"active provider: {provider_id}"
         if not config.api_key.get_secret_value():

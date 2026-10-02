@@ -172,9 +172,17 @@ class KnowledgeService:
         """Swap the LLM adapter mid-session (provider switch).
 
         Everything else (chunker, embedder, vector store, coordinator,
-        editor) is preserved — only the adapter changes.
+        editor) is preserved — only the adapter changes. The compactor's
+        adapter is swapped too so ``/learn`` keeps working against the
+        new provider.
         """
         self._llm = llm
+        self._compactor.set_llm(llm)
+
+    def set_model(self, chat_model: str, compactor_model: str | None = None) -> None:
+        """Swap the chat / compaction models (provider switch)."""
+        self._chat_model = chat_model
+        self._compactor.set_model(compactor_model if compactor_model is not None else chat_model)
 
     def chat(
         self,

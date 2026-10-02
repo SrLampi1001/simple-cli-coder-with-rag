@@ -103,3 +103,5 @@ def test_provider_switch_rebuilds_knowledge_service_llm(
 
     new_llm.complete_with_tools.assert_called()
     old_llm.complete_with_tools.assert_not_called()
+    # The switch also retargets the chat model to the new provider's default.
+    assert knowledge._chat_model == "gpt-4o-mini"

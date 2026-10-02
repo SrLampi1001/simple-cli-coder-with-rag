@@ -97,6 +97,14 @@ class Compactor:
         self._llm = llm
         self._compactor_model = compactor_model
 
+    def set_model(self, compactor_model: str) -> None:
+        """Swap the model used for compaction (provider switch)."""
+        self._compactor_model = compactor_model
+
+    def set_llm(self, llm: LLMClient) -> None:
+        """Swap the LLM adapter (provider switch)."""
+        self._llm = llm
+
     def compact(self, session_id: str, messages: list[Message]) -> CompactedSession:
         """Return a ``CompactedSession`` for ``messages``.
 
