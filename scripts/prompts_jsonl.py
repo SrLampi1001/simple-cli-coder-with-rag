@@ -53,8 +53,8 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SOURCE_DIR = REPO_ROOT / "coding-assitance" / "json-sessions"
-DEFAULT_OUTPUT_PATH = REPO_ROOT / "coding-assitance" / "prompts.jsonl"
+DEFAULT_SOURCE_DIR = REPO_ROOT / "coding-assistance" / "json-sessions"
+DEFAULT_OUTPUT_PATH = REPO_ROOT / "coding-assistance" / "prompts.jsonl"
 
 
 def _iter_user_prompts(session: dict[str, Any], source_file: str) -> Iterator[dict[str, Any]]:
