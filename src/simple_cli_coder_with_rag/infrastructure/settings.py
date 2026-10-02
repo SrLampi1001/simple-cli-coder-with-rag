@@ -26,6 +26,22 @@ Vector store configuration (DO-07):
   path (``~/.local/share/simple-cli-coder-with-rag/db.sqlite``) at the
   composition root. Override via the ``DB_PATH`` env var when the user
   has a non-default data dir (CI, containerised installs, tests).
+
+Retrieval timeout (DO-08):
+
+* ``retrieval_timeout_seconds`` — upper bound on a single retrieval
+  call, in seconds. The
+  :class:`~simple_cli_coder_with_rag.infrastructure.retrievers.timeout_retriever.TimeoutRetriever`
+  Decorator wraps the base retriever and submits each ``retrieve`` call
+  to the retrieval :class:`~concurrent.futures.ThreadPoolExecutor`,
+  waiting at most this many seconds via
+  ``future.result(timeout=...)``. On timeout it returns ``[]`` and logs
+  at DEBUG — the user never blocks past the deadline. Default ``1.5``
+  is the value ``OBJECTIVES.md`` pins for v1 (the underlying query is a
+  tiny cosine lookup on a few-hundred-row table; 1.5 s is plenty even
+  on a slow CI runner). Override via the ``RETRIEVAL_TIMEOUT_SECONDS``
+  env var for tighter SLAs (e.g. ``0.5`` for a latency-sensitive
+  integration).
 """
 
 from __future__ import annotations
@@ -118,6 +134,13 @@ class Settings(BaseSettings):
     # Override via the ``DB_PATH`` env var to relocate the DB (CI,
     # containerised installs, tests with ``tmp_path``).
     db_path: Path | None = None
+
+    # Upper bound on a single retrieval call (DO-08). Used by the
+    # ``TimeoutRetriever`` Decorator wrapping the base retriever at the
+    # composition root. Plain ``float`` — pydantic-settings reads it
+    # from the ``RETRIEVAL_TIMEOUT_SECONDS`` env var. The default ``1.5``
+    # is the value ``OBJECTIVES.md`` pins for v1.
+    retrieval_timeout_seconds: float = 1.5
 
     model_config = SettingsConfigDict(
         env_file=".env",

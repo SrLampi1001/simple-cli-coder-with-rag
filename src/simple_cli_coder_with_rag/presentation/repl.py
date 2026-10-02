@@ -37,10 +37,12 @@ class Repl:
         app_state: AppState,
         *,
         output: Callable[[str], None] = print,
+        on_exit: Callable[[], None] | None = None,
     ) -> None:
         self._registry = registry
         self._app_state = app_state
         self._output = output
+        self._on_exit = on_exit
         self._should_exit = False
 
     def request_exit(self) -> None:
@@ -48,16 +50,29 @@ class Repl:
         self._should_exit = True
 
     def run(self) -> None:
-        """Read input, dispatch, repeat until :meth:`request_exit` is called."""
-        session: PromptSession[str] = PromptSession()
-        while not self._should_exit:
-            try:
-                line = session.prompt(self._PROMPT)
-            except EOFError:
-                # Ctrl-D on an empty prompt: behave as /exit.
-                self._should_exit = True
-                break
-            self._handle(line)
+        """Read input, dispatch, repeat until :meth:`request_exit` is called.
+
+        The optional ``on_exit`` callback (set in :meth:`__init__`) is
+        invoked exactly once when the loop terminates — on a clean
+        ``/exit``, on Ctrl-D, and after an unhandled exception bubbles
+        out of :meth:`_handle`. The composition root uses it to call
+        :meth:`~simple_cli_coder_with_rag.infrastructure.retrievers.executor.RetrievalExecutor.shutdown`
+        so Ctrl-D does not hang waiting for in-flight retrieval
+        (``docs/development-tools.md`` §9).
+        """
+        try:
+            session: PromptSession[str] = PromptSession()
+            while not self._should_exit:
+                try:
+                    line = session.prompt(self._PROMPT)
+                except EOFError:
+                    # Ctrl-D on an empty prompt: behave as /exit.
+                    self._should_exit = True
+                    break
+                self._handle(line)
+        finally:
+            if self._on_exit is not None:
+                self._on_exit()
 
     def _handle(self, line: str) -> None:
         """Dispatch a single line of input."""

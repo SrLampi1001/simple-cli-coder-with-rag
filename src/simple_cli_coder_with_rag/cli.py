@@ -11,8 +11,15 @@ Responsibilities:
   provider, build the session store + compactor + ``KnowledgeService``
   facade, build the vector store (with ``SqliteVecStore`` falling back
   to ``NumpyBruteForceStore`` when ``sqlite-vec`` cannot load — DO-07),
+  build the retriever chain (``BaseRetriever`` wrapped in
+  ``TimeoutRetriever`` sharing one ``RetrievalExecutor`` — DO-08),
   generate a fresh UUIDv4 session id, and start the
   :class:`~simple_cli_coder_with_rag.presentation.repl.Repl`.
+
+The composition root is also responsible for **registering
+``RetrievalExecutor.shutdown`` on REPL exit** (passed as the ``Repl``'s
+``on_exit`` callback) so Ctrl-D does not hang waiting for in-flight
+retrieval threads (``docs/development-tools.md`` §9).
 """
 
 from __future__ import annotations
@@ -30,6 +37,9 @@ from simple_cli_coder_with_rag.application.knowledge_service import (
     KnowledgeService,
     build_chunker,
 )
+from simple_cli_coder_with_rag.application.retrievers.base_retriever import (
+    BaseRetriever,
+)
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.domain.vector_store import (
     VectorStore,
@@ -39,6 +49,12 @@ from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
+from simple_cli_coder_with_rag.infrastructure.retrievers.executor import (
+    RetrievalExecutor,
+)
+from simple_cli_coder_with_rag.infrastructure.retrievers.timeout_retriever import (
+    TimeoutRetriever,
+)
 from simple_cli_coder_with_rag.infrastructure.settings import (
     Settings,
     resolve_db_path,
@@ -97,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
 
     configure_logging()
 
-    _settings, app_state = _bootstrap_app_state()
-    if app_state is None:
+    _settings, app_state, retrieval_executor = _bootstrap_app_state()
+    if app_state is None or retrieval_executor is None:
         # Settings validation failed; the helper already wrote the message
         # to stderr. We deliberately do **not** start the REPL here — the
         # prompt would corrupt the message.
@@ -116,18 +132,29 @@ def main(argv: list[str] | None = None) -> int:
     fastembed_embedder._REPL_ACTIVE = True
 
     registry = _build_registry()
-    repl = Repl(registry=registry, app_state=app_state)
+    # ``RetrievalExecutor.shutdown`` is registered as the REPL's exit hook so
+    # Ctrl-D does not hang waiting for in-flight retrieval threads
+    # (``docs/development-tools.md`` §9). The executor is shared by the
+    # ``TimeoutRetriever`` built inside ``_bootstrap_app_state`` — there is
+    # exactly one executor per process.
+    repl = Repl(
+        registry=registry,
+        app_state=app_state,
+        on_exit=retrieval_executor.shutdown,
+    )
     repl.run()
     return 0
 
 
-def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
+def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalExecutor | None]:
     """Instantiate Settings, build the active LLM client, and bundle into AppState.
 
-    Returns ``(None, None)`` if the active provider's API key is missing —
+    Returns ``(None, None, None)`` if the active provider's API key is missing —
     in that case the helper prints a friendly message to stderr (the only
     place we write to stderr before ``prompt_toolkit`` takes over) and the
-    caller exits with code 2.
+    caller exits with code 2. On success, returns the wired ``RetrievalExecutor``
+    alongside ``settings`` and ``app_state`` so the caller can register
+    ``executor.shutdown`` as the REPL's ``on_exit`` callback (DO-08).
     """
     try:
         settings = Settings()
@@ -135,7 +162,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         # Active provider's key is missing. This is the only stderr write
         # before the REPL takes over.
         print(f"coder: {exc}", file=sys.stderr)
-        return None, None
+        return None, None, None
 
     llm_client = build_llm_client(settings)
     chat_model = _resolve_chat_model(settings)
@@ -171,6 +198,18 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
     # at INFO so the user can see it in ``tail -f`` of the log file.
     vector_store = _build_vector_store(settings)
 
+    # Retriever chain (DO-08). One ``RetrievalExecutor`` is built and shared
+    # by the timeout-wrapped retriever; the executor is returned to the caller
+    # so its ``shutdown`` is wired to REPL exit. ``BaseRetriever`` is the
+    # default Strategy; ``TimeoutRetriever`` Decorator wraps it so the REPL
+    # never blocks past ``settings.retrieval_timeout_seconds``.
+    retrieval_executor = RetrievalExecutor()
+    retriever = TimeoutRetriever(
+        BaseRetriever(embedder=embedder, vector_store=vector_store),
+        timeout_seconds=settings.retrieval_timeout_seconds,
+        executor=retrieval_executor,
+    )
+
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
@@ -179,6 +218,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         chunker=chunker,
         embedder=embedder,
         vector_store=vector_store,
+        retriever=retriever,
     )
     app_state = AppState(
         version=__version__,
@@ -189,7 +229,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         chunker=chunker,
         embedder=embedder,
     )
-    return settings, app_state
+    return settings, app_state, retrieval_executor
 
 
 def _build_vector_store(settings: Settings) -> VectorStore:

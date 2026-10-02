@@ -9,8 +9,10 @@ exposes three operations:
   via the compactor, chunk it via the Strategy-picked chunker, embed
   the chunks via the Strategy-picked embedder (DO-06), and persist them
   to the Strategy-picked vector store (DO-07). Returns the chunk count.
-* :meth:`KnowledgeService.recall` — return relevant chunks; a stub until
-  DO-09 wires the vector store.
+* :meth:`KnowledgeService.recall` — return relevant chunks via the
+  injected ``Retriever`` (DO-08). Returns ``[]`` when no retriever is
+  wired or when the retriever signals a transient failure (timeout,
+  embedder still loading).
 
 Architectural notes:
 
@@ -35,6 +37,22 @@ Architectural notes:
   upgraded to DO-07) the service still compacts and chunks, but skips
   the embed -> upsert stage. This keeps the DO-04 and DO-06 test
   suites passing without modification.
+* ``retriever`` (DO-08) is also **optional**. When ``None``,
+  :meth:`recall` short-circuits to ``[]`` — keeps the pre-DO-08 test
+  suites passing without modification. When set, the composition root
+  is responsible for wrapping the bare :class:`BaseRetriever` in the
+  :class:`~simple_cli_coder_with_rag.infrastructure.retrievers.timeout_retriever.TimeoutRetriever`
+  Decorator **before** injecting it here. That keeps the timeout
+  deadline scoped to the single seam and prevents ``recall`` from
+  needing its own timeout wrapper.
+* :meth:`recall` catches the wider ``RuntimeError`` (not
+  :class:`EmbedderNotReady` directly) so this module stays decoupled
+  from the embedder module — same trick ``cli.py`` uses for
+  :class:`VectorStoreBackendUnavailable`. The base retriever raises
+  :class:`EmbedderNotReady`; that IS a ``RuntimeError`` per
+  :mod:`domain.embedder`. The ``TimeoutRetriever`` returns ``[]`` on
+  timeout instead of raising, so a timeout shows up as ``[]`` from the
+  retriever — never a second ``RuntimeError`` here.
 """
 
 from __future__ import annotations
@@ -51,6 +69,7 @@ from simple_cli_coder_with_rag.domain.chunker import Chunker
 from simple_cli_coder_with_rag.domain.embedder import Embedder
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient
 from simple_cli_coder_with_rag.domain.messages import Message
+from simple_cli_coder_with_rag.domain.retriever import Retriever
 from simple_cli_coder_with_rag.domain.vector_store import VectorStore
 
 
@@ -66,6 +85,7 @@ class KnowledgeService:
         chunker: Chunker,
         embedder: Embedder | None = None,
         vector_store: VectorStore | None = None,
+        retriever: Retriever | None = None,
     ) -> None:
         self._llm = llm
         self._chat_model = chat_model
@@ -74,6 +94,7 @@ class KnowledgeService:
         self._chunker = chunker
         self._embedder = embedder
         self._vector_store = vector_store
+        self._retriever = retriever
         # Most recent ``chunk`` result, populated by ``learn``. ``[]``
         # before the first ``/learn``. DO-06 (embedder) and DO-07
         # (vector store) read this so they can embed and persist
@@ -124,9 +145,37 @@ class KnowledgeService:
             self._vector_store.upsert(self.last_chunks, vectors)
         return len(self.last_chunks)
 
-    def recall(self, query: str) -> list[str]:
-        """Return the most relevant chunks for ``query``. Filled in by DO-09."""
-        return []
+    def recall(self, query: str, *, top_k: int = 3) -> list[str]:
+        """Return up to ``top_k`` most relevant chunk texts for ``query``.
+
+        Behaviour:
+
+        * No retriever wired (``self._retriever is None``) → returns
+          ``[]``. Keeps the pre-DO-08 test suites passing without
+          modification.
+        * Retriever raises ``RuntimeError`` (e.g. the embedder is still
+          loading — :class:`EmbedderNotReady` is a ``RuntimeError``) →
+          catches and returns ``[]``. The composition root wires the
+          ``TimeoutRetriever`` Decorator outside this method, so a
+          timeout surfaces as ``[]`` from the retriever instead of a
+          second ``RuntimeError`` here.
+        * Otherwise → returns ``[r.chunk.text for r in results]`` in
+          retrieval order (vector store ranks by similarity descending).
+
+        ``top_k`` defaults to ``3`` — a small enough window that the
+        chat prompt stays under the LLM's context budget but large
+        enough that "obvious" hits land inside the slice.
+        """
+        if self._retriever is None:
+            return []
+        try:
+            results = self._retriever.retrieve(query, top_k=top_k)
+        except RuntimeError:
+            # EmbedderNotReady (the base retriever's own signal). The composition root
+            # wires the TimeoutRetriever-wrapped retriever, so a timeout surfaces as
+            # [] from the retriever — not a second timeout wrapper here.
+            return []
+        return [r.chunk.text for r in results]
 
 
 def build_chunker(strategy: str) -> Chunker:
