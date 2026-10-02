@@ -8,6 +8,9 @@ Responsibilities:
 * Write the structured result of ``/learn`` to
   ``<root>/<session_id>.compacted.json`` — a single JSON document that is
   replaced on every compaction (idempotent ``/learn``).
+* List every saved ``<id>.jsonl`` transcript in the store by
+  ``(session_id, mtime, message_count)`` (DO-12). The listing is
+  metadata-only — message bodies are never parsed.
 
 Architectural constraint: this module imports from :mod:`domain` only.
 It must not import anything from :mod:`infrastructure` (no ``LocalPaths``,
@@ -20,8 +23,11 @@ platform-dependent data directory from leaking into the application layer.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
+
+from loguru import logger
 
 from simple_cli_coder_with_rag.domain.compacted import CompactedSession
 from simple_cli_coder_with_rag.domain.messages import Message
@@ -91,6 +97,55 @@ class SessionStore:
         target = self._root / f"{session_id}.compacted.json"
         target.write_text(compacted.model_dump_json(indent=2), encoding="utf-8")
         return target
+
+    def list_sessions(self) -> list[tuple[str, float, int]]:
+        """Return one ``(session_id, mtime, message_count)`` tuple per saved session.
+
+        DO-12 backs ``/chats`` with this listing. One tuple per
+        ``<id>.jsonl`` file under ``self._root``, sorted by ``mtime``
+        descending. ``message_count`` is the number of non-empty lines
+        in the file — a trailing newline does not count. The listing
+        is **metadata-only**: message bodies are never parsed, which
+        keeps the cost bounded even on long-running ones. The
+        implementation is resilient to a missing root (returns ``[]``)
+        and to unreadable files (logged at DEBUG, entry omitted).
+
+        Returns:
+            ``[(session_id, mtime, message_count), ...]`` sorted by
+            ``mtime`` descending. Empty root → ``[]``.
+        """
+        if not self._root.exists():
+            return []
+        entries: list[tuple[str, float, int]] = []
+        try:
+            iterator = os.scandir(self._root)
+        except OSError as exc:
+            logger.debug("session store: cannot scan {}: {}", self._root, exc)
+            return []
+        for dir_entry in iterator:
+            name = dir_entry.name
+            if not name.endswith(".jsonl"):
+                # ``.compacted.json`` and other sibling artefacts are ignored.
+                pass
+            if not dir_entry.is_file() or not name.endswith(".jsonl"):
+                continue
+            session_id = name[: -len(".jsonl")]
+            try:
+                stat = dir_entry.stat()
+            except OSError as exc:
+                logger.debug("session store: cannot stat {}: {}", dir_entry.path, exc)
+                continue
+            mtime = stat.st_mtime
+            try:
+                with open(dir_entry.path, encoding="utf-8") as f:
+                    message_count = sum(1 for line in f if line.strip())
+            except OSError as exc:
+                logger.debug("session store: cannot read {}: {}", dir_entry.path, exc)
+                continue
+            entries.append((session_id, mtime, message_count))
+        # Sort by mtime descending — most recently active session first.
+        entries.sort(key=lambda entry: entry[1], reverse=True)
+        return entries
 
 
 __all__ = ["SessionStore"]

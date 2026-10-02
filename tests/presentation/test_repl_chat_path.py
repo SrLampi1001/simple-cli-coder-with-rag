@@ -139,27 +139,61 @@ def test_repl_does_not_call_chat_for_slash_command(
     knowledge.chat.assert_not_called()
 
 
-def test_repl_caps_history_at_20_turns(
+def test_repl_caps_history_at_10_turns(
     monkeypatch: pytest.MonkeyPatch,
     fresh_registry: CommandRegistry,
     mocker: MockerFixture,
 ) -> None:
-    """After 25 turns, history is capped at 40 messages (20 turns) — oldest dropped."""
+    """After 15 turns, history is capped at 20 messages (10 turns) — oldest dropped.
+
+    DO-12 lowered the default cap from 20 turns to 10 turns
+    (= 20 messages) to match the TL literal acceptance criterion
+    "10 most recent user/assistant messages". The fallback
+    ``app_state.settings is None`` path is exercised here (the
+    REPL's fallback cap is the documented default ``10``).
+    """
     knowledge = mocker.MagicMock()
     knowledge.chat.return_value = "ok"
 
     state = _app_state_with(knowledge)
     fresh_registry.register(ExitCommand())
 
-    inputs = [f"msg-{i}" for i in range(25)] + ["/exit"]
+    inputs = [f"msg-{i}" for i in range(15)] + ["/exit"]
     _patch_prompt(monkeypatch, inputs)
 
     repl = Repl(registry=fresh_registry, app_state=state)
     repl.run()
 
-    assert len(state.history) == 40
+    assert len(state.history) == 20
     # The first five turns (msg-0..msg-4) were dropped from the front.
     assert state.history[0] == UserMessage(content="msg-5")
+    assert state.history[-1] == AssistantMessage(content="ok")
+
+
+def test_repl_caps_history_at_custom_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    fresh_registry: CommandRegistry,
+    mocker: MockerFixture,
+) -> None:
+    """``settings.int_history_cap=3`` caps the history at 6 messages (3 turns)."""
+    from simple_cli_coder_with_rag.infrastructure.settings import Settings
+
+    knowledge = mocker.MagicMock()
+    knowledge.chat.return_value = "ok"
+
+    state = _app_state_with(knowledge)
+    state.settings = Settings(int_history_cap=3)
+    fresh_registry.register(ExitCommand())
+
+    inputs = [f"msg-{i}" for i in range(7)] + ["/exit"]
+    _patch_prompt(monkeypatch, inputs)
+
+    repl = Repl(registry=fresh_registry, app_state=state)
+    repl.run()
+
+    assert len(state.history) == 6
+    # The first four turns (msg-0..msg-3) were dropped from the front.
+    assert state.history[0] == UserMessage(content="msg-4")
     assert state.history[-1] == AssistantMessage(content="ok")
 
 

@@ -113,7 +113,10 @@ You should see the prompt:
 ### Chat
 
 Type any message and press Enter. The CLI sends your message (plus the
-rolling history of the last 20 turns) to the LLM and prints the reply.
+rolling window of the last 10 user/assistant turns — 20 messages — by
+default) to the LLM and prints the reply. The cap is configurable
+through the `INT_HISTORY_CAP` env var (see *Session memory and saved
+chats* below).
 
 ```
 >>> What is 2+2?
@@ -151,6 +154,9 @@ included; turns added while it runs belong to a later `/learn`.
 | `/connect --new <id> --adapter <a> --base-url <u> --model <m>` | Register a custom provider. |
 | `/providers` | List providers (id, adapter, base URL, model, key set?) and the active one. |
 | `/provider <id>` | Activate a provider (live switch, no restart).   |
+| `/memory` | Show the active conversation window (session id, kept turns, last user/assistant). |
+| `/chats`  | List saved sessions on disk by id with last activity and message count. |
+| `/resume <session-id>` | Resume a saved chat by id; loads its last 10 messages and continues the conversation. |
 
 ### One-off flags
 
@@ -172,6 +178,34 @@ echo y | uv run coder --reset
 ---
 
 ## Configuration reference
+
+### Session memory and saved chats
+
+Every chat turn is appended to the on-disk transcript
+`<session_id>.jsonl` under `~/.local/share/simple-cli-coder-with-rag/sessions/`,
+so chats survive a restart. The REPL trims the in-memory history to
+the last `INT_HISTORY_CAP` *turns* (= the last
+`2 * INT_HISTORY_CAP` messages) on every turn; the full transcript
+stays on disk for `/chats` and `/resume <id>` to read back.
+
+Three slash commands drive the saved-chat flow:
+
+* **`/memory`** — show the active window (session id, kept turns,
+  last user / assistant).
+* **`/chats`** — list every saved session on disk (short id, last
+  activity, message count), sorted by most recently active first.
+  The trailing `active: <id>` line is the session the REPL is
+  currently writing to.
+* **`/resume <session-id>`** — load the last 10 messages of a
+  saved session into the active context and continue. New messages
+  you type after `/resume` are appended to the same `<id>.jsonl`,
+  so the conversation continues as if it had never been paused.
+  `/resume` is a synchronous load-from-disk — no LLM call, no
+  compactor round-trip, no blocking pause.
+
+See [`docs/session-memory.md`](./docs/session-memory.md) for the
+full on-disk layout, the recovery flow after a restart, and the
+failure-mode catalogue.
 
 ### Memory and recall (RAG)
 
@@ -215,6 +249,7 @@ useful knobs:
 | `TRIVIAL_GATE_MAX_WORDS`  | `4`                                     | Trivial-gate word bound (skip recall at or below).            |
 | `EDITOR_ROOT`             | *(cwd at startup)*                      | Sandbox root for the LLM's file tools.                        |
 | `EDITOR_MAX_TOOL_ROUNDS`  | `1`                                     | Max tool-use rounds per chat turn.                            |
+| `INT_HISTORY_CAP`         | `10`                                    | Conversation-window cap, in user/assistant *turns* (one turn = two messages). Values outside `[1, 100]` are rejected. |
 
 > Provider keys live in `providers.json` and are wrapped in pydantic
 > `SecretStr`, so `repr` / `str` / `model_dump_json()` mask them. Logs are

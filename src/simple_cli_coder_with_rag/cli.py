@@ -72,13 +72,16 @@ from simple_cli_coder_with_rag.infrastructure.vector_stores import (
     SqliteVecStore,
 )
 from simple_cli_coder_with_rag.presentation.commands import AppState
+from simple_cli_coder_with_rag.presentation.commands.chats import ChatsCommand
 from simple_cli_coder_with_rag.presentation.commands.clear import ClearCommand
 from simple_cli_coder_with_rag.presentation.commands.connect import ConnectCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
 from simple_cli_coder_with_rag.presentation.commands.help import HelpCommand
 from simple_cli_coder_with_rag.presentation.commands.learn import LearnCommand
+from simple_cli_coder_with_rag.presentation.commands.memory import MemoryCommand
 from simple_cli_coder_with_rag.presentation.commands.provider import ProviderCommand
 from simple_cli_coder_with_rag.presentation.commands.providers import ProvidersCommand
+from simple_cli_coder_with_rag.presentation.commands.resume import ResumeCommand
 from simple_cli_coder_with_rag.presentation.commands.version import VersionCommand
 from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
 from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -108,6 +111,9 @@ def _build_registry() -> CommandRegistry:
     registry.register(ConnectCommand())
     registry.register(ProvidersCommand())
     registry.register(ProviderCommand())
+    registry.register(MemoryCommand())
+    registry.register(ChatsCommand())
+    registry.register(ResumeCommand())
     return registry
 
 
@@ -288,6 +294,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         embedder=embedder,
         editor=editor,
         provider_registry=provider_registry,
+        settings=settings,
     )
     return settings, app_state, retrieval_executor
 

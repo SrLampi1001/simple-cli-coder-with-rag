@@ -4,8 +4,21 @@ Lines starting with ``/`` dispatch to a registered command. Anything else
 is a chat turn: the REPL hands the line to
 :class:`~simple_cli_coder_with_rag.application.knowledge_service.KnowledgeService.chat`,
 prints the model's reply, appends both the user turn and the assistant
-turn to ``app_state.history``, and trims the history back to the configured
-``history_cap`` (in turns) from the front when it grows past the limit.
+turn to ``app_state.history``, and trims the history back to the
+configured window from the front when it grows past the limit. The cap
+is read from ``app_state.settings.int_history_cap`` (default
+``10`` turns = ``20`` messages) — DO-12 lifted the cap from a hard-coded
+``history_cap=20`` to a configurable value matching the spec "10 most
+recent user/assistant messages".
+
+Persistence (DO-12):
+
+* After every successful chat turn, the REPL appends the user turn
+  and the assistant reply to ``<session_id>.jsonl`` via
+  ``SessionStore.append``. A ``seen`` set built from
+  ``SessionStore.read(session_id)`` at the start of each turn drops
+  already-persisted messages so a resumed session whose transcript
+  is already on disk never re-appends lines.
 
 Recall integration (DO-09):
 
@@ -39,6 +52,12 @@ from simple_cli_coder_with_rag.presentation.commands import (
     CommandContext,
 )
 from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
+
+# DO-12 fallback cap when ``app_state.settings`` is ``None`` (legacy unit
+# tests that build a bare ``AppState()``). The documented default is
+# ``10`` turns = ``20`` messages, matching the TL acceptance criterion
+# "10 most recent user/assistant messages".
+_DEFAULT_HISTORY_CAP_TURNS = 10
 
 
 class Repl:
@@ -122,11 +141,36 @@ class Repl:
         similarity threshold, and the documented failure paths. A
         residual ``except Exception`` here is defensive only — it
         guarantees the chat loop survives an unexpected vendor bug.
+
+        Persistence (DO-12): every successful turn is appended to the
+        on-disk ``<session_id>.jsonl`` transcript. We persist the
+        messages this turn added — the ``persisted_through`` counter on
+        :class:`AppState` tracks which messages in ``history`` have
+        already been persisted, so ``/resume <id>`` followed by typing
+        never duplicates lines (the loaded messages have their
+        ``persisted_through`` index advanced by ``ResumeCommand``).
+
+        Trim (DO-12): the active history is trimmed to the last
+        ``2 * int_history_cap`` messages (= the last
+        ``int_history_cap`` user/assistant turns) once the turn
+        finishes. The on-disk transcript is *not* trimmed — the full
+        history stays for ``/chats`` / ``/resume <id>``.
         """
         knowledge = self._app_state.knowledge
         if knowledge is None:
             self._output("LLM not configured; type /help.")
             return
+        # Resolve the cap once per turn so a Settings edit mid-run
+        # would still need a restart (consistent with the rest of the
+        # composition root, which builds Settings at boot only).
+        capacity = self._resolve_history_cap()
+        # Persistence pre-flight: ensure the session has a stable id
+        # before we touch disk, so a /resume later can find the
+        # transcript by id. ``session_store is None`` (legacy tests)
+        # short-circuits the persistence step below.
+        store = self._app_state.session_store
+        if store is not None and not self._app_state.session_id:
+            self._app_state.session_id = store.current_id()
         # Recall runs before chat. The coordinator already catches the
         # documented failure paths; this outer try/except is a defensive
         # last resort so a novel exception cannot kill the chat loop.
@@ -146,12 +190,37 @@ class Repl:
             self._output(f"LLM error: {exc}")
             return
         self._output(response)
-        self._app_state.history.append(UserMessage(content=line))
-        self._app_state.history.append(AssistantMessage(content=response))
-        # Trim from the front so we keep at most ``history_cap`` turns.
-        cap = 2 * self._app_state.history_cap
-        if len(self._app_state.history) > cap:
-            self._app_state.history[:] = self._app_state.history[-cap:]
+        user_msg = UserMessage(content=line)
+        assistant_msg = AssistantMessage(content=response)
+        self._app_state.history.append(user_msg)
+        self._app_state.history.append(assistant_msg)
+        # Persist the messages this turn added. ``persisted_through``
+        # is the count of messages already on disk; we only append
+        # what is new since ``persisted_through`` was last updated.
+        # ``ResumeCommand`` advances ``persisted_through`` so the
+        # messages loaded from disk are never re-appended.
+        if store is not None:
+            for msg in self._app_state.history[self._app_state.persisted_through :]:
+                store.append(self._app_state.session_id, msg)
+        self._app_state.persisted_through = len(self._app_state.history)
+        # Trim from the front so we keep at most ``int_history_cap``
+        # turns (= 2 * capacity messages). Drop the oldest messages
+        # when the history grew past the cap.
+        if len(self._app_state.history) > capacity:
+            self._app_state.history[:] = self._app_state.history[-capacity:]
+
+    def _resolve_history_cap(self) -> int:
+        """Return the in-memory history cap (in messages) for this turn.
+
+        Reads ``Settings.int_history_cap`` (in *turns*; one turn = two
+        messages) from ``app_state.settings``. Falls back to
+        ``_DEFAULT_HISTORY_CAP_TURNS`` (= ``10``) when ``settings`` is
+        ``None`` so legacy unit tests that build a bare ``AppState``
+        keep passing.
+        """
+        settings = self._app_state.settings
+        cap_turns = settings.int_history_cap if settings is not None else _DEFAULT_HISTORY_CAP_TURNS
+        return 2 * cap_turns
 
 
 __all__ = ["Repl"]

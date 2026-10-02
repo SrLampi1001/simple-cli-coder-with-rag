@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from simple_cli_coder_with_rag.infrastructure.providers.registry import (
         ProviderRegistry,
     )
+    from simple_cli_coder_with_rag.infrastructure.settings import Settings
     from simple_cli_coder_with_rag.presentation.repl import Repl
 
 
@@ -30,14 +31,18 @@ if TYPE_CHECKING:
 class AppState:
     """Mutable application state passed to commands and the REPL.
 
-    ``Settings`` is **not** stored here: it is built once in the
-    composition root and consumed by concrete adapters directly. The
-    resulting ``LLMClient`` *is* stashed here so commands can reach it
-    (DO-03 wires the chat loop; DO-04 wires the compactor).
+    ``Settings`` is built once in the composition root. The cap on the
+    active conversation window (``Settings.int_history_cap``) is read
+    by the REPL through ``app_state.settings`` (DO-12); the legacy
+    ``history_cap`` field that backed the in-REPL trim in DO-03 is
+    removed. ``None`` is permitted for pre-DO-12 unit tests — the REPL
+    falls back to the documented default ``10``.
 
     ``history`` is a list that is **mutated in place** by the REPL
-    (``history.append(...)``, ``history[:] = history[-cap:]``). ``llm``
-    and ``knowledge`` are reassigned in place by provider-switch commands.
+    (``history.append(...)``, ``history[:] = history[-cap:]``) and by
+    the ``ResumeCommand`` (``history[:] = ...`` on a /resume).
+    ``llm`` and ``knowledge`` are reassigned in place by
+    provider-switch commands.
 
     ``knowledge`` is wired by the composition root in ``cli.py`` once
     the active provider's adapter is built. It defaults to ``None`` so
@@ -46,8 +51,10 @@ class AppState:
     ``session_id`` is a UUIDv4 hex string generated at startup by the
     composition root (via ``SessionStore.current_id``). It is the
     identifier the REPL passes to ``KnowledgeService.learn`` when the
-    user runs ``/learn``, and the filename prefix used by the session
-    store (``<root>/<session_id>.jsonl`` and ``<root>/<session_id>.compacted.json``).
+    user runs ``/learn``, the filename prefix used by the session
+    store (``<root>/<session_id>.jsonl``), and the value
+    ``/resume <id>`` swaps in. ``ResumeCommand`` may assign a new
+    value mid-run.
 
     ``session_store`` is the on-disk store for transcripts and
     compacted JSON. The composition root wires the real
@@ -61,19 +68,29 @@ class AppState:
     when the REPL first opens; ``KnowledgeService.recall`` (DO-09)
     short-circuits to "no memories" in that case. ``None`` is permitted
     only for tests that do not exercise the embedder surface.
+
+    ``persisted_through`` (DO-12) is the count of leading messages in
+    ``history`` that have already been appended to the
+    ``<session_id>.jsonl`` transcript. The REPL updates it after every
+    persisted turn; ``ResumeCommand`` sets it to ``len(history)`` after
+    loading a transcript so the loaded messages are never
+    re-appended. The default ``0`` keeps every existing test passing
+    — a fresh ``AppState`` has no history and therefore nothing to
+    persist.
     """
 
     version: str
     llm: LLMClient | None = None
     knowledge: KnowledgeService | None = None
     history: list[Message] = field(default_factory=list)
-    history_cap: int = 20
     session_id: str = ""
     session_store: SessionStore | None = None
     chunker: Chunker | None = None
     embedder: Embedder | None = None
     editor: FileEditor | None = None
     provider_registry: ProviderRegistry | None = None
+    settings: Settings | None = None
+    persisted_through: int = 0
 
 
 @dataclass(frozen=True)

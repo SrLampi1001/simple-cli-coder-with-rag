@@ -39,6 +39,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VectorStoreChoice = Literal["sqlite_vec", "brute_force"]
@@ -135,6 +136,31 @@ class Settings(BaseSettings):
     # ``EDITOR_MAX_TOOL_ROUNDS`` env var when more rounds are needed
     # (e.g. an editor that mutates files and re-reads them).
     editor_max_tool_rounds: int = 1
+
+    # Conversation window cap (DO-12). The REPL trims the in-memory
+    # history to the last ``2 * int_history_cap`` messages (= the last
+    # ``int_history_cap`` user/assistant turns) after every chat turn.
+    # The on-disk transcript in ``<session_id>.jsonl`` is *not* trimmed
+    # — the full history stays on disk for ``/chats`` and
+    # ``/resume <id>`` to read back. Default ``10`` matches the TL
+    # literal acceptance criterion "10 most recent user/assistant
+    # messages". Override via the ``INT_HISTORY_CAP`` env var; values
+    # outside ``[1, 100]`` are rejected at boot.
+    int_history_cap: int = 10
+
+    @field_validator("int_history_cap")
+    @classmethod
+    def _validate_int_history_cap(cls, value: int) -> int:
+        """Reject ``int_history_cap`` outside ``[1, 100]`` at boot.
+
+        ``0`` would create a window that can never hold any message;
+        ``>100`` would defeat the cap's purpose. Anything outside the
+        range is a configuration mistake and is surfaced as a
+        pydantic ``ValidationError`` instead of a deferred crash.
+        """
+        if value < 1 or value > 100:
+            raise ValueError(f"int_history_cap must be between 1 and 100 (inclusive); got {value}")
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",
