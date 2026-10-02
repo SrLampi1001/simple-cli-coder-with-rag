@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from simple_cli_coder_with_rag.application.session_store import SessionStore
     from simple_cli_coder_with_rag.domain.chunker import Chunker
     from simple_cli_coder_with_rag.domain.embedder import Embedder
+    from simple_cli_coder_with_rag.domain.file_editor import FileEditor
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
     from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -69,6 +70,7 @@ class AppState:
     session_store: SessionStore | None = None
     chunker: Chunker | None = None
     embedder: Embedder | None = None
+    editor: FileEditor | None = None
 
 
 @dataclass(frozen=True)

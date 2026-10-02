@@ -168,6 +168,23 @@ class Settings(BaseSettings):
     trivial_gate_max_chars: int = 20
     trivial_gate_max_words: int = 4
 
+    # Editor sandbox root (DO-10). The ``SandboxedFileEditor`` confines all
+    # read/write/edit operations to this directory; any path that escapes
+    # (via ``..`` traversal, an absolute path, or a symlink) raises
+    # :class:`~simple_cli_coder_with_rag.domain.file_editor.PathNotAllowed`.
+    # Default is :meth:`Path.cwd` so ``coder`` opens in the user's working
+    # directory. Override via the ``EDITOR_ROOT`` env var to scope the
+    # sandbox to a sub-project.
+    editor_root: Path = Path.cwd()
+
+    # Upper bound on tool-use rounds per chat turn (DO-10). One round is
+    # one ``complete_with_tools`` call followed by zero-or-more tool
+    # executions. Default ``1`` keeps the chat loop bounded — a runaway
+    # agent cannot loop indefinitely calling tools. Override via the
+    # ``EDITOR_MAX_TOOL_ROUNDS`` env var when more rounds are needed
+    # (e.g. an editor that mutates files and re-reads them).
+    editor_max_tool_rounds: int = 1
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

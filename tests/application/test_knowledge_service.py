@@ -1,6 +1,7 @@
 """Tests for the ``KnowledgeService`` facade.
 
-Pinned by ``agent-development/03-agent-responds-baseline/tests.md``. The
+Pinned by ``agent-development/03-agent-responds-baseline/tests.md`` and
+extended in DO-10 (``chat`` now uses ``complete_with_tools``). The
 ``LLMClient`` is mocked via :mod:`pytest_mock`; the tests never hit the
 network and never read ``.env``.
 """
@@ -17,7 +18,7 @@ from simple_cli_coder_with_rag.application.compactor import Compactor
 from simple_cli_coder_with_rag.application.knowledge_service import KnowledgeService
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient, LLMError
-from simple_cli_coder_with_rag.domain.messages import UserMessage
+from simple_cli_coder_with_rag.domain.messages import AssistantTurn, UserMessage
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -45,24 +46,28 @@ def _make_service(
 
 
 def test_chat_calls_llm_with_messages(tmp_path: Path, mocker: MockerFixture) -> None:
-    """``chat`` passes a message list ending with the user's turn to ``complete``."""
+    """``chat`` passes a message list ending with the user's turn to ``complete_with_tools``."""
     fake_llm = mocker.MagicMock()
-    fake_llm.complete.return_value = "hello back"
+    fake_llm.complete_with_tools.return_value = AssistantTurn(content="hello back", tool_calls=[])
 
     service = _make_service(tmp_path, fake_llm, chat_model="chat-model")
     service.chat("hi", history=[])
 
-    fake_llm.complete.assert_called_once()
-    call = fake_llm.complete.call_args
+    fake_llm.complete_with_tools.assert_called_once()
+    call = fake_llm.complete_with_tools.call_args
     sent_messages = call.args[0]
     assert sent_messages == [UserMessage(content="hi")]
     assert call.kwargs["model"] == "chat-model"
+    # Tools are forwarded so the LLM knows about read/write/edit.
+    assert "tools" in call.kwargs
+    tool_names = {t.name for t in call.kwargs["tools"]}
+    assert {"read", "write", "edit"}.issubset(tool_names)
 
 
 def test_chat_returns_llm_string(tmp_path: Path, mocker: MockerFixture) -> None:
-    """``chat`` returns exactly what ``LLMClient.complete`` returns."""
+    """``chat`` returns exactly ``AssistantTurn.content`` from ``complete_with_tools``."""
     fake_llm = mocker.MagicMock()
-    fake_llm.complete.return_value = "the reply"
+    fake_llm.complete_with_tools.return_value = AssistantTurn(content="the reply", tool_calls=[])
 
     service = _make_service(tmp_path, fake_llm)
     result = service.chat("hi", history=[])
@@ -71,7 +76,7 @@ def test_chat_returns_llm_string(tmp_path: Path, mocker: MockerFixture) -> None:
 
 
 def test_chat_uses_chat_model_from_settings(tmp_path: Path, mocker: MockerFixture) -> None:
-    """The ``model`` kwarg forwarded to ``complete`` matches ``Settings.chat_model``."""
+    """The ``model`` kwarg forwarded to ``complete_with_tools`` matches ``Settings.chat_model``."""
     from pydantic import SecretStr
 
     from simple_cli_coder_with_rag.infrastructure.settings import Settings
@@ -83,12 +88,12 @@ def test_chat_uses_chat_model_from_settings(tmp_path: Path, mocker: MockerFixtur
     )
 
     fake_llm = mocker.MagicMock()
-    fake_llm.complete.return_value = "ok"
+    fake_llm.complete_with_tools.return_value = AssistantTurn(content="ok", tool_calls=[])
 
     service = _make_service(tmp_path, fake_llm, chat_model=settings.chat_model)
     service.chat("hi", history=[])
 
-    assert fake_llm.complete.call_args.kwargs["model"] == "settings-chat-model"
+    assert fake_llm.complete_with_tools.call_args.kwargs["model"] == "settings-chat-model"
 
 
 def test_recall_returns_empty_list(tmp_path: Path, mocker: MockerFixture) -> None:
@@ -100,9 +105,9 @@ def test_recall_returns_empty_list(tmp_path: Path, mocker: MockerFixture) -> Non
 
 
 def test_llm_error_is_re_raised_verbatim(tmp_path: Path, mocker: MockerFixture) -> None:
-    """When ``LLMClient.complete`` raises ``LLMError``, ``chat`` re-raises verbatim."""
+    """When ``LLMClient.complete_with_tools`` raises ``LLMError``, ``chat`` re-raises verbatim."""
     fake_llm = mocker.MagicMock()
-    fake_llm.complete.side_effect = LLMError("boom")
+    fake_llm.complete_with_tools.side_effect = LLMError("boom")
 
     service = _make_service(tmp_path, fake_llm)
 

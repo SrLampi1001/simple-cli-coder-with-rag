@@ -33,6 +33,7 @@ from loguru import logger
 
 from simple_cli_coder_with_rag import __version__
 from simple_cli_coder_with_rag.application.compactor import Compactor
+from simple_cli_coder_with_rag.application.file_editor import SandboxedFileEditor
 from simple_cli_coder_with_rag.application.knowledge_service import (
     KnowledgeService,
     build_chunker,
@@ -230,6 +231,14 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         similarity_threshold=settings.recall_similarity_threshold,
     )
 
+    # Editor sandbox (DO-10). Built once and shared between the
+    # ``KnowledgeService`` (which dispatches tool calls to it) and the
+    # ``AppState`` (so commands can reach it if they ever need to). The
+    # sandbox root comes from ``settings.editor_root`` (default
+    # ``Path.cwd()``); override via the ``EDITOR_ROOT`` env var to scope
+    # the agent's edits to a sub-project.
+    editor = SandboxedFileEditor(root=settings.editor_root)
+
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
@@ -239,6 +248,8 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         embedder=embedder,
         vector_store=vector_store,
         coordinator=recall_coordinator,
+        editor=editor,
+        editor_max_tool_rounds=settings.editor_max_tool_rounds,
     )
     app_state = AppState(
         version=__version__,
@@ -248,6 +259,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         session_store=session_store,
         chunker=chunker,
         embedder=embedder,
+        editor=editor,
     )
     return settings, app_state, retrieval_executor
 

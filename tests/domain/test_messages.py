@@ -16,6 +16,7 @@ from simple_cli_coder_with_rag.domain.messages import (
     Message,
     SystemMessage,
     ToolCall,
+    ToolResultMessage,
     ToolSpec,
     UserMessage,
 )
@@ -102,3 +103,45 @@ def test_assistant_turn_preserves_tool_calls() -> None:
     calls = [ToolCall(id="1", name="x", arguments={})]
     turn = AssistantTurn(content="", tool_calls=calls)
     assert turn.tool_calls == calls
+
+
+# ---------------------------------------------------------------------------
+# DO-10 tool-use extensions
+# ---------------------------------------------------------------------------
+
+
+def test_tool_result_message_has_tool_role() -> None:
+    """``ToolResultMessage`` carries the literal ``role="tool"`` discriminator."""
+    msg = ToolResultMessage(tool_call_id="1", content="x")
+    assert msg.role == "tool"
+    assert msg.tool_call_id == "1"
+    assert msg.content == "x"
+
+
+def test_assistant_message_carries_tool_calls() -> None:
+    """``AssistantMessage`` accepts ``tool_calls`` and round-trips them.
+
+    The default is an empty list — DO-02/DO-03 callers that construct
+    ``AssistantMessage(content="...")`` without ``tool_calls`` keep working.
+    """
+    calls = [ToolCall(id="1", name="read", arguments={"path": "foo.txt"})]
+    msg = AssistantMessage(content="", tool_calls=calls)
+    assert msg.tool_calls == calls
+
+    # Default is empty.
+    bare = AssistantMessage(content="hi")
+    assert bare.tool_calls == []
+
+
+def test_message_union_accepts_tool_result() -> None:
+    """``Message.model_validate({"role": "tool", ...})`` resolves to ``ToolResultMessage``.
+
+    DO-02's earlier ``test_message_union_validation`` was updated to use a
+    genuinely unknown role (``"junior"``); the ``"tool"`` role is now a
+    legitimate member of the union, added by DO-10.
+    """
+    parsed = Message.model_validate({"role": "tool", "tool_call_id": "1", "content": "x"})
+    assert isinstance(parsed, ToolResultMessage)
+    assert parsed.tool_call_id == "1"
+    assert parsed.content == "x"
+    assert parsed.role == "tool"
