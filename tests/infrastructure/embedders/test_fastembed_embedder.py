@@ -267,6 +267,9 @@ def test_text_embedding_constructed_with_local_files_only(
     tmp_path: Path, mocker: MockerFixture
 ) -> None:
     """``local_files_only=True`` is forwarded to ``TextEmbedding(...)``."""
+    # Warm cache (snapshot dir present) so the cold-cache download
+    # fallback in ``_load`` does not override ``local_files_only``.
+    (tmp_path / "models--BAAI--bge-small-en-v1.5").mkdir()
     embedder, factory = _make_embedder(mocker, cache_dir=tmp_path, local_files_only=True)
     embedder.warmup()
 
@@ -276,6 +279,7 @@ def test_text_embedding_constructed_with_local_files_only(
 
 def test_text_embedding_default_local_files_only(tmp_path: Path, mocker: MockerFixture) -> None:
     """The default ``local_files_only`` is ``True`` (verified by the dev-tools.md §5 note)."""
+    (tmp_path / "models--BAAI--bge-small-en-v1.5").mkdir()
     embedder, factory = _make_embedder(mocker, cache_dir=tmp_path)
     embedder.warmup()
 

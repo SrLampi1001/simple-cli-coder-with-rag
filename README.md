@@ -78,11 +78,15 @@ The default model for each provider is verified to respond to chat
 completions on a real account. You can override the model with the
 `*_MODEL` env vars (or `CHAT_MODEL` for the REPL chat path specifically):
 
-| Provider   | Default model                       | Also known to work                                                          |
-|------------|-------------------------------------|-----------------------------------------------------------------------------|
-| NVIDIA     | `meta/llama-3.2-11b-vision-instruct`| `openai/gpt-oss-20b`, `nvidia/nemotron-3-super-120b-a12b`                   |
-| Mistral    | `mistral-code-latest`               | `codestral-latest`, `ministral-8b-latest`                                   |
-| MiniMax    | `MiniMax-M3`                        | (Anthropic-SDK-compatible endpoint at `https://api.minimax.io/anthropic`)   |
+| Provider   | Default model        | Also known to work                                                          |
+|------------|----------------------|-----------------------------------------------------------------------------|
+| NVIDIA     | `openai/gpt-oss-20b` | `nvidia/nemotron-3-super-120b-a12b`                                          |
+| Mistral    | `mistral-code-latest`| `codestral-latest`, `ministral-8b-latest`                                    |
+| MiniMax    | `MiniMax-M3`         | (Anthropic-SDK-compatible endpoint at `https://api.minimax.io/anthropic`)   |
+
+> `meta/llama-3.2-11b-vision-instruct` used to be the NVIDIA default — it is a
+> vision model whose outputs do not follow the chat/tool schema (it returned
+> empty replies and bogus tool calls), so it is no longer the default.
 
 > The earlier defaults (`meta/llama-3.1-70b-instruct`, `mistral-large-latest`)
 > were deprecated/removed by their providers and now return HTTP 410 / 403.
@@ -94,9 +98,10 @@ completions on a real account. You can override the model with the
 - If the API key for `DEFAULT_PROVIDER` is missing, `coder` prints a friendly
   error to **stderr** and exits with code `2`. The other two keys may stay
   empty.
-- On the first chat turn the first time you use it after `uv sync`, the
-  embedding model (~130 MB) is downloaded in the background and cached under
-  `~/.cache/simple-cli-coder-with-rag/models/`. Subsequent runs are offline.
+- At startup the embedding model (~130 MB) loads on a background thread —
+  downloading on first use and cached under
+  `~/.cache/simple-cli-coder-with-rag/models/`. Subsequent runs are offline;
+  recall degrades to "no memories" until the model is ready.
 
 ---
 
@@ -122,6 +127,24 @@ rolling history of the last 20 turns) to the LLM and prints the reply.
 Four.
 ```
 
+Before each turn, the recall pipeline searches your past sessions for
+chunks relevant to the prompt and injects the best ones into the system
+prompt (see *Memory and recall (RAG)* below). Trivial prompts (≤ 20
+chars and ≤ 4 words by default) skip the search entirely.
+
+The LLM can also use file tools (`read`, `write`, `edit`), sandboxed to
+`EDITOR_ROOT` — see below.
+
+### `/learn`
+
+`/learn` compacts the current session into a JSON document, chunks it,
+embeds the chunks, and stores them in the vector store for future recall.
+It runs on a background thread, so you can keep chatting while it works —
+it prints `learn: done — learned N chunks` (or `learn failed: …`) when
+finished. You can start a new `/learn` only after the previous one
+finishes. Only the messages present when `/learn` was invoked are
+included; turns added while it runs belong to a later `/learn`.
+
 ### Slash commands
 
 | Command   | Purpose                                                |
@@ -130,7 +153,7 @@ Four.
 | `/exit`   | Leave the REPL (also `Ctrl-D` on an empty prompt).     |
 | `/clear`  | Clear the visible screen.                              |
 | `/version`| Print the package version.                             |
-| `/learn`  | (Coming in DO-04) Compact the session into a JSON file.|
+| `/learn`  | Compact the session into a JSON file and index it in the vector store (runs in the background). |
 
 ### One-off flags
 
@@ -153,6 +176,30 @@ echo y | uv run coder --reset
 
 ## Configuration reference
 
+### Memory and recall (RAG)
+
+`/learn` turns past sessions into searchable memory:
+
+```
+session JSON → compact (LLM) → chunks → embeddings → vector store
+```
+
+On every chat turn, `RecallCoordinator` embeds your prompt, queries the
+vector store, drops trivial prompts (gate), and keeps only chunks above the
+similarity threshold. The hits are prepended to the system prompt so the LLM
+can reference your past work. Retrieval is wrapped in a timeout
+(`RETRIEVAL_TIMEOUT_SECONDS`, default 1.5s) and any failure degrades to
+"no memories" — a slow or broken store never blocks your prompt.
+
+### File tools
+
+The chat model can call `read` / `write` / `edit` tool calls, executed by a
+`SandboxedFileEditor` confined to `EDITOR_ROOT` (the current directory by
+default). Paths escaping the sandbox are rejected. `EDITOR_MAX_TOOL_ROUNDS`
+(default 1) caps how many tool-use rounds a single turn may take.
+
+### Settings
+
 All settings live in `src/simple_cli_coder_with_rag/infrastructure/settings.py`
 and are loaded from environment / `.env` via `pydantic-settings`. The most
 useful knobs:
@@ -163,13 +210,25 @@ useful knobs:
 | `NVIDIA_API_KEY`          | *(empty)*                               | Required when `DEFAULT_PROVIDER=nvidia`.                      |
 | `MISTRAL_API_KEY`         | *(empty)*                               | Required when `DEFAULT_PROVIDER=mistral`.                     |
 | `MINIMAX_API_KEY`         | *(empty)*                               | Required when `DEFAULT_PROVIDER=minimax`.                     |
-| `NVIDIA_MODEL`            | `meta/llama-3.2-11b-vision-instruct`    | Model used for chat when `DEFAULT_PROVIDER=nvidia`.           |
+| `NVIDIA_MODEL`            | `openai/gpt-oss-20b`                | Model used for chat when `DEFAULT_PROVIDER=nvidia`.           |
 | `MISTRAL_MODEL`           | `mistral-code-latest`                   | Model used for chat when `DEFAULT_PROVIDER=mistral`.          |
 | `MINIMAX_MODEL`           | `MiniMax-M3`                            | Model used for chat when `DEFAULT_PROVIDER=minimax`.          |
 | `CHAT_MODEL`              | *(empty)*                               | Overrides the per-provider default for the REPL chat path.    |
 | `NVIDIA_BASE_URL`         | *(empty)*                               | Override the NVIDIA endpoint (self-hosting).                  |
 | `MISTRAL_BASE_URL`        | *(empty)*                               | Override the Mistral endpoint (self-hosting).                 |
 | `MINIMAX_BASE_URL`        | *(empty)*                               | Override the MiniMax endpoint (self-hosting).                 |
+| `CHUNKER_STRATEGY`        | `fixed`                                 | `fixed` (sliding window) or `semantic` (one chunk per record).|
+| `VECTOR_STORE`            | `sqlite_vec`                            | `sqlite_vec` (persistent) or `brute_force` (in-memory).       |
+| `DB_PATH`                 | *(empty)*                               | Override the sqlite-vec DB location.                          |
+| `EMBEDDING_MODEL`         | `BAAI/bge-small-en-v1.5`                | fastembed model used for query/passage embeddings.            |
+| `EMBEDDING_LOCAL_FILES_ONLY` | `1`                                  | Skip the HF network check when the model is cached.           |
+| `RETRIEVAL_TIMEOUT_SECONDS` | `1.5`                                 | Max seconds for a single retrieval before "no memories".      |
+| `RECALL_TOP_K`            | `3`                                     | Max chunks injected per prompt.                               |
+| `RECALL_SIMILARITY_THRESHOLD` | `0.5`                              | Min cosine similarity for a recalled chunk to be injected.    |
+| `TRIVIAL_GATE_MAX_CHARS`  | `20`                                    | Trivial-gate char bound (skip recall at or below).            |
+| `TRIVIAL_GATE_MAX_WORDS`  | `4`                                     | Trivial-gate word bound (skip recall at or below).            |
+| `EDITOR_ROOT`             | *(cwd at startup)*                      | Sandbox root for the LLM's file tools.                        |
+| `EDITOR_MAX_TOOL_ROUNDS`  | `1`                                     | Max tool-use rounds per chat turn.                            |
 
 > `repr(Settings(...))` and `str(settings)` mask every API key. Logs are
 > file-only (under `~/.local/share/simple-cli-coder-with-rag/log/`) so

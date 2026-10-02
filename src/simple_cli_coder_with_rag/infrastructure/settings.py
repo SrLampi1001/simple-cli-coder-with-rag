@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # ``mistral-large-latest``) return HTTP 410 Gone / HTTP 403 (tier not
     # allowed) from the providers on the test account. The current defaults
     # were verified to respond correctly to a chat completion call.
-    nvidia_model: str = "meta/llama-3.2-11b-vision-instruct"
+    nvidia_model: str = "openai/gpt-oss-20b"
     mistral_model: str = "mistral-code-latest"
     minimax_model: str = "MiniMax-M3"
 

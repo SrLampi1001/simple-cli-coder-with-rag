@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,8 +41,18 @@ def _make_context(app_state: AppState) -> CommandContext:
     return CommandContext(repl=_StubRepl(), app_state=app_state)
 
 
-def test_learn_command_passes_only_session_id(mocker: MockerFixture) -> None:
-    """``LearnCommand`` calls ``knowledge.learn(session_id)`` with one positional arg."""
+def _wait_for(predicate, timeout: float = 5.0) -> None:
+    """Poll ``predicate`` until true or the deadline passes."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("timed out waiting for background /learn to finish")
+
+
+def test_learn_command_runs_in_background(mocker: MockerFixture) -> None:
+    """``LearnCommand`` returns immediately and calls ``knowledge.learn`` off-thread."""
     knowledge = mocker.MagicMock()
     knowledge.learn.return_value = 3
 
@@ -55,8 +66,11 @@ def test_learn_command_passes_only_session_id(mocker: MockerFixture) -> None:
     result = LearnCommand().execute(_make_context(app_state))
 
     assert result.action == "continue"
-    assert result.message == "learned 3 chunks"
-    knowledge.learn.assert_called_once_with("sid")
+    assert result.message is not None
+    assert "background" in result.message
+    _wait_for(lambda: knowledge.learn.called)
+    knowledge.learn.assert_called_once()
+    assert knowledge.learn.call_args.args == ("sid",)
 
 
 def test_learn_command_does_not_exit(mocker: MockerFixture) -> None:
@@ -76,8 +90,8 @@ def test_learn_command_does_not_exit(mocker: MockerFixture) -> None:
     assert result.action == "continue"
 
 
-def test_learn_command_handles_llm_error(mocker: MockerFixture) -> None:
-    """On ``LLMError`` the command returns a ``learn failed:`` message and keeps the REPL alive."""
+def test_learn_command_reports_llm_error(mocker: MockerFixture, capsys) -> None:
+    """On ``LLMError`` the background worker prints ``learn failed:`` and the REPL survives."""
     knowledge = mocker.MagicMock()
     knowledge.learn.side_effect = LLMError("boom")
 
@@ -91,15 +105,18 @@ def test_learn_command_handles_llm_error(mocker: MockerFixture) -> None:
     result = LearnCommand().execute(_make_context(app_state))
 
     assert result.action == "continue"
-    assert result.message is not None
-    assert result.message.startswith("learn failed: ")
+    out = ""
+    for _ in range(500):
+        out += capsys.readouterr().out
+        if "learn failed: " in out:
+            break
+        time.sleep(0.01)
+    assert "learn failed: " in out
+    assert "boom" in out
 
 
-def test_learn_command_handles_compaction_error(mocker: MockerFixture) -> None:
-    """On ``CompactionError`` (LLM gave an unparseable response) the REPL must
-    survive the trial. Without this catch the exception would propagate out of
-    ``Repl._handle`` and crash the interactive session.
-    """
+def test_learn_command_reports_compaction_error(mocker: MockerFixture, capsys) -> None:
+    """On ``CompactionError`` the worker prints ``learn failed:`` and the REPL survives."""
     knowledge = mocker.MagicMock()
     knowledge.learn.side_effect = CompactionError("schema mismatch")
 
@@ -113,9 +130,13 @@ def test_learn_command_handles_compaction_error(mocker: MockerFixture) -> None:
     result = LearnCommand().execute(_make_context(app_state))
 
     assert result.action == "continue"
-    assert result.message is not None
-    assert result.message.startswith("learn failed: ")
-    assert "schema mismatch" in result.message
+    out = ""
+    for _ in range(500):
+        out += capsys.readouterr().out
+        if "schema mismatch" in out:
+            break
+        time.sleep(0.01)
+    assert "schema mismatch" in out
 
 
 def test_learn_command_is_registered() -> None:
@@ -167,9 +188,11 @@ def test_learn_command_persists_history_to_session_store(
     mocker.patch.object(store, "read", return_value=[])
 
     LearnCommand().execute(_make_context(app_state))
+    _wait_for(lambda: knowledge.learn.called)
 
     assert append_calls == [("sid", "hello"), ("sid", "hi back")]
-    knowledge.learn.assert_called_once_with("sid")
+    knowledge.learn.assert_called_once()
+    assert knowledge.learn.call_args.args == ("sid",)
 
 
 def test_learn_command_skips_already_persisted_messages(
@@ -203,6 +226,8 @@ def test_learn_command_skips_already_persisted_messages(
     mocker.patch.object(store, "read", return_value=[UserMessage(content="already-there")])
 
     LearnCommand().execute(_make_context(app_state))
+    _wait_for(lambda: knowledge.learn.called)
 
     assert append_calls == []  # nothing appended
-    knowledge.learn.assert_called_once_with("sid")
+    knowledge.learn.assert_called_once()
+    assert knowledge.learn.call_args.args == ("sid",)

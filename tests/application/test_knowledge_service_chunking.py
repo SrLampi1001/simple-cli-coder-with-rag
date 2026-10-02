@@ -108,8 +108,15 @@ def test_learn_command_message_includes_count(mocker: MockerFixture) -> None:
     result = LearnCommand().execute(ctx)
 
     assert result.action == "continue"
-    assert result.message == "learned 7 chunks"
-    knowledge.learn.assert_called_once_with("sid")
+    for _ in range(500):
+        if knowledge.learn.called:
+            break
+        import time
+
+        time.sleep(0.01)
+    assert "background" in result.message
+    knowledge.learn.assert_called_once()
+    assert knowledge.learn.call_args.args == ("sid",)
 
 
 @dataclass
@@ -137,4 +144,11 @@ def test_learn_command_passes_only_session_id(mocker: MockerFixture) -> None:
     ctx = CommandContext(repl=_StubRepl(), app_state=app_state)
     LearnCommand().execute(ctx)
 
-    knowledge.learn.assert_called_once_with("only-session")
+    for _ in range(500):
+        if knowledge.learn.called:
+            break
+        import time
+
+        time.sleep(0.01)
+    knowledge.learn.assert_called_once()
+    assert knowledge.learn.call_args.args == ("only-session",)

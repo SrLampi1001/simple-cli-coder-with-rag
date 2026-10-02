@@ -1,4 +1,4 @@
-"""``/learn`` command — compact the current session, chunk it, and report the count.
+"""``/learn`` command — compact the current session, chunk it, and store it.
 
 This is the user-facing surface of the DO-04 + DO-05 pipeline. The command:
 
@@ -6,17 +6,23 @@ This is the user-facing surface of the DO-04 + DO-05 pipeline. The command:
    :class:`AppState`.
 2. Persists any in-memory history messages to the session store
    (idempotent — skips messages already on disk).
-3. Forwards ``session_id`` to :meth:`KnowledgeService.learn`, which
-   compacts via the LLM, writes the JSON, and chunks the result.
-4. Reports the result as a one-line ``"learned N chunks"`` message.
+3. Snapshots the transcript **now** and hands that snapshot to
+   :meth:`KnowledgeService.learn` on a background thread, so the user
+   can keep chatting while the LLM compact + embed + upsert runs.
+   Later turns never leak into an in-flight ``/learn``.
+4. Prints a one-line result (``learned N chunks`` / ``learn failed: ...``)
+   when the background run finishes.
 
-``LLMError`` and :class:`CompactionError` are caught here so a failed
-``/learn`` does not bring down the REPL — the user can retry the same
-command on the next prompt. Anything else (programming bug) still
-propagates out so the user notices.
+``LLMError``, :class:`CompactionError`, ``TimeoutError``, and transient
+``RuntimeError`` failures are reported in the completion message so a
+failed ``/learn`` never brings down the REPL. Anything else (programming
+bug) also surfaces in the message — the REPL must stay alive even for
+that.
 """
 
 from __future__ import annotations
+
+import threading
 
 from simple_cli_coder_with_rag.application.compactor import CompactionError
 from simple_cli_coder_with_rag.domain.llm_client import LLMError
@@ -24,6 +30,10 @@ from simple_cli_coder_with_rag.presentation.commands import (
     CommandContext,
     CommandResult,
 )
+
+# Guards against two ``/learn`` runs overlapping (the underlying store +
+# vector-store writes are not designed for concurrent writers).
+_LEARN_LOCK = threading.Lock()
 
 
 class LearnCommand:
@@ -54,16 +64,33 @@ class LearnCommand:
                     continue
                 session_store.append(session_id, msg)
                 seen.add(key)
+            snapshot = session_store.read(session_id)
+        else:
+            snapshot = list(history)
 
-        try:
-            count = knowledge.learn(session_id)
-        except (LLMError, CompactionError) as exc:
-            # Both failure modes — the LLM client blew up, or the LLM's
-            # reply failed schema validation — are surfaced as a one-line
-            # error message and the REPL keeps running. Anything else
-            # (programming bug) still propagates out so the user notices.
-            return CommandResult(action="continue", message=f"learn failed: {exc}")
-        return CommandResult(action="continue", message=f"learned {count} chunks")
+        if not _LEARN_LOCK.acquire(blocking=False):
+            return CommandResult(
+                action="continue", message="learn is already running; wait for it to finish"
+            )
+
+        def _run() -> None:
+            try:
+                count = knowledge.learn(session_id, messages=snapshot)
+                print(f"learn: done — learned {count} chunks", flush=True)
+            except (LLMError, CompactionError, TimeoutError, RuntimeError) as exc:
+                print(f"learn failed: {exc}", flush=True)
+            except Exception as exc:  # never let a background crash kill the REPL
+                print(f"learn failed: {exc}", flush=True)
+            finally:
+                _LEARN_LOCK.release()
+
+        threading.Thread(target=_run, name="learn-worker", daemon=True).start()
+        return CommandResult(
+            action="continue",
+            message=(
+                "learning session in the background — you can keep chatting; I'll report when done"
+            ),
+        )
 
 
 __all__ = ["LearnCommand"]

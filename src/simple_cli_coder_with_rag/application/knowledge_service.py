@@ -299,7 +299,12 @@ class KnowledgeService:
     def _bad_arg(tool: str, key: str, expected: str) -> str:
         return f"tool {tool!r} received a malformed argument: {key!r} must be a {expected}"
 
-    def learn(self, session_id: str) -> int:
+    def learn(
+        self,
+        session_id: str,
+        *,
+        messages: list[Message] | None = None,
+    ) -> int:
         """Compact, chunk, embed, and persist the on-disk session for ``session_id``.
 
         Algorithm:
@@ -325,11 +330,16 @@ class KnowledgeService:
         ``LLMError`` and :class:`~simple_cli_coder_with_rag.application.compactor.CompactionError`
         propagate verbatim.
         """
-        all_messages = self._session_store.read(session_id)
+        all_messages = self._session_store.read(session_id) if messages is None else list(messages)
         compacted = self._compactor.compact(session_id, all_messages)
         self._session_store.write_compacted(session_id, compacted)
         self.last_chunks = self._chunker.chunk(compacted)
         if self._embedder is not None and self._vector_store is not None:
+            # The embedder loads on a background thread so a cold-cache
+            # download never delays the prompt. ``/learn`` needs it
+            # synchronously, so block briefly here instead of raising
+            # ``EmbedderNotReady`` when the user runs ``/learn`` too early.
+            self._embedder.warmup(timeout=60.0)
             vectors = self._embedder.embed_passages([c.text for c in self.last_chunks])
             self._vector_store.upsert(self.last_chunks, vectors)
         return len(self.last_chunks)

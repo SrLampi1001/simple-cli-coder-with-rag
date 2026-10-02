@@ -156,6 +156,13 @@ class FastembedEmbedder:
         if self._cache_dir is not None:
             kwargs["cache_dir"] = str(self._cache_dir)
 
+        # Cold cache: ``local_files_only=True`` forbids the download, so
+        # the load would fail forever on a fresh machine. Allow the
+        # one-time download; subsequent runs find the snapshot on disk
+        # and honour the configured ``local_files_only`` again.
+        if self._cache_dir is not None and not _is_cache_warm(self._cache_dir, self._model_name):
+            kwargs["local_files_only"] = False
+
         try:
             self._model = TextEmbedding(**kwargs)
         except Exception as exc:
