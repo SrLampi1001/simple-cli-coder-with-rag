@@ -6,12 +6,27 @@ is a chat turn: the REPL hands the line to
 prints the model's reply, appends both the user turn and the assistant
 turn to ``app_state.history``, and trims the history back to the configured
 ``history_cap`` (in turns) from the front when it grows past the limit.
+
+Recall integration (DO-09):
+
+* Before every chat turn the REPL calls ``knowledge.recall(input)`` —
+  the coordinator's :class:`TrivialGate` short-circuits on short
+  prompts, so this is free for trivial input.
+* The returned ``list[str]`` is forwarded to ``knowledge.chat(...)`` as
+  the ``recalled`` kwarg; :func:`build_chat_messages` injects them as
+  a ``SystemMessage`` at the head of the LLM request.
+* ``recall`` failures are caught here as a defensive last-resort so a
+  novel exception cannot bring down the chat loop. The coordinator
+  already handles the documented failure paths
+  (``EmbedderNotReady``, ``TimeoutError``, generic ``RuntimeError``);
+  this catch only triggers for an unrelated bug.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
+from loguru import logger
 from prompt_toolkit import PromptSession
 
 from simple_cli_coder_with_rag.domain.llm_client import LLMError
@@ -99,16 +114,32 @@ class Repl:
         stays free of try/except ceremony. The error message is printed to
         stdout (not stderr — ``prompt_toolkit`` owns stderr) and the loop
         continues without polluting history.
+
+        Recall (DO-09): ``knowledge.recall(line)`` runs first; the
+        coordinator handles the trivial-prompt short-circuit, the
+        similarity threshold, and the documented failure paths. A
+        residual ``except Exception`` here is defensive only — it
+        guarantees the chat loop survives an unexpected vendor bug.
         """
         knowledge = self._app_state.knowledge
         if knowledge is None:
             self._output("LLM not configured; type /help.")
             return
+        # Recall runs before chat. The coordinator already catches the
+        # documented failure paths; this outer try/except is a defensive
+        # last resort so a novel exception cannot kill the chat loop.
+        try:
+            recalled = knowledge.recall(line)
+        except Exception as exc:
+            logger.debug("recall failed unexpectedly: {}", exc)
+            recalled = []
         try:
             # Snapshot the history: ``chat`` must see the turns that exist
             # *before* this message, and the captured call must remain stable
             # even after we append the new turn + assistant reply.
-            response = knowledge.chat(line, history=list(self._app_state.history))
+            response = knowledge.chat(
+                line, history=list(self._app_state.history), recalled=recalled
+            )
         except LLMError as exc:
             self._output(f"LLM error: {exc}")
             return

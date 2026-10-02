@@ -54,7 +54,13 @@ def test_repl_calls_chat_for_non_slash_input(
     fresh_registry: CommandRegistry,
     mocker: MockerFixture,
 ) -> None:
-    """A non-slash line routes through ``KnowledgeService.chat`` exactly once."""
+    """A non-slash line routes through ``KnowledgeService.chat`` exactly once.
+
+    DO-09 adds an optional ``recalled`` kwarg to ``KnowledgeService.chat``;
+    this test pins that the REPL continues to invoke ``chat`` with the
+    user message and history in the documented positions, regardless of
+    the additional ``recalled`` payload.
+    """
     knowledge = mocker.MagicMock()
     knowledge.chat.return_value = "ignored"
 
@@ -65,7 +71,10 @@ def test_repl_calls_chat_for_non_slash_input(
     repl = Repl(registry=fresh_registry, app_state=state)
     repl.run()
 
-    knowledge.chat.assert_called_once_with("hello", history=[])
+    knowledge.chat.assert_called_once()
+    call = knowledge.chat.call_args
+    assert call.args == ("hello",)
+    assert call.kwargs["history"] == []
 
 
 def test_repl_prints_llm_response(

@@ -4,25 +4,31 @@
 layer) and the LLM-backed ``LLMClient`` Protocol (domain layer). It
 exposes three operations:
 
-* :meth:`KnowledgeService.chat` — plain chat turn (DO-03).
+* :meth:`KnowledgeService.chat` — plain chat turn (DO-03). The
+  ``recalled`` parameter (DO-09) is forwarded to the prompt builder,
+  which injects the recalled chunks as a ``SystemMessage`` at the head
+  of the messages list.
 * :meth:`KnowledgeService.learn` — read the on-disk session, compact it
   via the compactor, chunk it via the Strategy-picked chunker, embed
   the chunks via the Strategy-picked embedder (DO-06), and persist them
   to the Strategy-picked vector store (DO-07). Returns the chunk count.
 * :meth:`KnowledgeService.recall` — return relevant chunks via the
-  injected ``Retriever`` (DO-08). Returns ``[]`` when no retriever is
-  wired or when the retriever signals a transient failure (timeout,
-  embedder still loading).
+  injected :class:`RecallCoordinator` (DO-09). Returns ``[]`` when no
+  coordinator is wired or when the coordinator signals a transient
+  failure (timeout, embedder still loading).
 
 Architectural notes:
 
 * This module imports from :mod:`domain` and from other ``application``
-  modules (the compactor, the chunkers, and the session store). It does
-  **not** import from :mod:`infrastructure` — no vendor SDKs and no
-  ``Settings`` type. The composition root in
+  modules (the compactor, the chunkers, the session store, the recall
+  coordinator). It does **not** import from :mod:`infrastructure` — no
+  vendor SDKs and no ``Settings`` type. The composition root in
   :mod:`simple_cli_coder_with_rag.cli` resolves ``chat_model`` /
   ``compactor_model`` from ``Settings`` and passes the resolved strings
-  into the constructor.
+  into the constructor, and wires the ``TimeoutRetriever``-wrapped
+  ``Retriever`` through a
+  :class:`~simple_cli_coder_with_rag.application.recall_coordinator.RecallCoordinator`
+  so the timeout deadline stays scoped to the retrieval seam.
 * ``LLMError`` is **not** caught here. The REPL catches it and prints a
   one-line message; any wrapping would only duplicate work and risk
   swallowing the wrong exception type.
@@ -37,22 +43,21 @@ Architectural notes:
   upgraded to DO-07) the service still compacts and chunks, but skips
   the embed -> upsert stage. This keeps the DO-04 and DO-06 test
   suites passing without modification.
-* ``retriever`` (DO-08) is also **optional**. When ``None``,
-  :meth:`recall` short-circuits to ``[]`` — keeps the pre-DO-08 test
-  suites passing without modification. When set, the composition root
-  is responsible for wrapping the bare :class:`BaseRetriever` in the
+* ``coordinator`` (DO-09) replaces the DO-08 ``retriever`` field. It is
+  also **optional**. When ``None``, :meth:`recall` short-circuits to
+  ``[]`` — keeps pre-DO-09 test suites passing without modification.
+  When set, the composition root is responsible for wrapping the bare
+  :class:`BaseRetriever` in the
   :class:`~simple_cli_coder_with_rag.infrastructure.retrievers.timeout_retriever.TimeoutRetriever`
-  Decorator **before** injecting it here. That keeps the timeout
-  deadline scoped to the single seam and prevents ``recall`` from
-  needing its own timeout wrapper.
-* :meth:`recall` catches the wider ``RuntimeError`` (not
-  :class:`EmbedderNotReady` directly) so this module stays decoupled
-  from the embedder module — same trick ``cli.py`` uses for
-  :class:`VectorStoreBackendUnavailable`. The base retriever raises
-  :class:`EmbedderNotReady`; that IS a ``RuntimeError`` per
-  :mod:`domain.embedder`. The ``TimeoutRetriever`` returns ``[]`` on
-  timeout instead of raising, so a timeout shows up as ``[]`` from the
-  retriever — never a second ``RuntimeError`` here.
+  Decorator **before** handing it to the coordinator. The coordinator
+  does **not** own an executor and does **not** wrap again (DO-08's
+  executor-scoping contract).
+* :meth:`recall` delegates to :class:`RecallCoordinator`, which catches
+  the wider ``RuntimeError`` (not :class:`EmbedderNotReady` directly)
+  so the coordinator stays decoupled from the embedder module — same
+  trick the rest of the codebase uses. The ``TimeoutRetriever`` returns
+  ``[]`` on timeout instead of raising, so a timeout shows up as ``[]``
+  from the coordinator.
 """
 
 from __future__ import annotations
@@ -63,13 +68,15 @@ from simple_cli_coder_with_rag.application.chunkers import (
 )
 from simple_cli_coder_with_rag.application.compactor import Compactor
 from simple_cli_coder_with_rag.application.prompts import build_chat_messages
+from simple_cli_coder_with_rag.application.recall_coordinator import (
+    RecallCoordinator,
+)
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.domain.chunk import Chunk
 from simple_cli_coder_with_rag.domain.chunker import Chunker
 from simple_cli_coder_with_rag.domain.embedder import Embedder
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient
 from simple_cli_coder_with_rag.domain.messages import Message
-from simple_cli_coder_with_rag.domain.retriever import Retriever
 from simple_cli_coder_with_rag.domain.vector_store import VectorStore
 
 
@@ -85,7 +92,7 @@ class KnowledgeService:
         chunker: Chunker,
         embedder: Embedder | None = None,
         vector_store: VectorStore | None = None,
-        retriever: Retriever | None = None,
+        coordinator: RecallCoordinator | None = None,
     ) -> None:
         self._llm = llm
         self._chat_model = chat_model
@@ -94,20 +101,32 @@ class KnowledgeService:
         self._chunker = chunker
         self._embedder = embedder
         self._vector_store = vector_store
-        self._retriever = retriever
+        self._coordinator = coordinator
         # Most recent ``chunk`` result, populated by ``learn``. ``[]``
         # before the first ``/learn``. DO-06 (embedder) and DO-07
         # (vector store) read this so they can embed and persist
         # exactly the chunks that ``learn`` produced.
         self.last_chunks: list[Chunk] = []
 
-    def chat(self, user_message: str, history: list[Message]) -> str:
+    def chat(
+        self,
+        user_message: str,
+        history: list[Message],
+        recalled: list[str] | None = None,
+    ) -> str:
         """Send ``user_message`` (with prior ``history``) to the LLM and return the reply.
+
+        ``recalled`` (DO-09) is a list of chunk texts retrieved from the
+        vector store before this turn. ``None`` (the default) is
+        equivalent to ``[]``. The prompt builder injects the recalled
+        texts as a ``SystemMessage`` at the head of the messages list
+        when non-empty, so the LLM sees the context **before** the
+        user's request.
 
         ``LLMError`` propagates verbatim so the caller (the REPL) can decide
         how to surface it.
         """
-        messages = build_chat_messages(user_message, history, recalled=[])
+        messages = build_chat_messages(user_message, history, recalled=recalled or [])
         return self._llm.complete(messages, model=self._chat_model)
 
     def learn(self, session_id: str) -> int:
@@ -145,37 +164,23 @@ class KnowledgeService:
             self._vector_store.upsert(self.last_chunks, vectors)
         return len(self.last_chunks)
 
-    def recall(self, query: str, *, top_k: int = 3) -> list[str]:
+    def recall(self, query: str, *, top_k: int | None = None) -> list[str]:
         """Return up to ``top_k`` most relevant chunk texts for ``query``.
 
-        Behaviour:
+        Delegates to the injected :class:`RecallCoordinator`. ``top_k``
+        defaults to the coordinator's configured value (``None`` here →
+        the coordinator's :attr:`top_k` is used). When no coordinator
+        is wired, returns ``[]``.
 
-        * No retriever wired (``self._retriever is None``) → returns
-          ``[]``. Keeps the pre-DO-08 test suites passing without
-          modification.
-        * Retriever raises ``RuntimeError`` (e.g. the embedder is still
-          loading — :class:`EmbedderNotReady` is a ``RuntimeError``) →
-          catches and returns ``[]``. The composition root wires the
-          ``TimeoutRetriever`` Decorator outside this method, so a
-          timeout surfaces as ``[]`` from the retriever instead of a
-          second ``RuntimeError`` here.
-        * Otherwise → returns ``[r.chunk.text for r in results]`` in
-          retrieval order (vector store ranks by similarity descending).
-
-        ``top_k`` defaults to ``3`` — a small enough window that the
-        chat prompt stays under the LLM's context budget but large
-        enough that "obvious" hits land inside the slice.
+        The coordinator itself applies the trivial-prompt gate, the
+        similarity threshold, and the ``RuntimeError`` /
+        ``TimeoutError`` fail-safes — see
+        :class:`~simple_cli_coder_with_rag.application.recall_coordinator.RecallCoordinator`.
         """
-        if self._retriever is None:
+        if self._coordinator is None:
             return []
-        try:
-            results = self._retriever.retrieve(query, top_k=top_k)
-        except RuntimeError:
-            # EmbedderNotReady (the base retriever's own signal). The composition root
-            # wires the TimeoutRetriever-wrapped retriever, so a timeout surfaces as
-            # [] from the retriever — not a second timeout wrapper here.
-            return []
-        return [r.chunk.text for r in results]
+        effective_top_k = top_k if top_k is not None else self._coordinator.top_k
+        return self._coordinator.recall(query, top_k=effective_top_k)
 
 
 def build_chunker(strategy: str) -> Chunker:

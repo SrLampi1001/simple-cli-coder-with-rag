@@ -37,10 +37,14 @@ from simple_cli_coder_with_rag.application.knowledge_service import (
     KnowledgeService,
     build_chunker,
 )
+from simple_cli_coder_with_rag.application.recall_coordinator import (
+    RecallCoordinator,
+)
 from simple_cli_coder_with_rag.application.retrievers.base_retriever import (
     BaseRetriever,
 )
 from simple_cli_coder_with_rag.application.session_store import SessionStore
+from simple_cli_coder_with_rag.application.trivial_gate import TrivialGate
 from simple_cli_coder_with_rag.domain.vector_store import (
     VectorStore,
     VectorStoreBackendUnavailable,
@@ -210,6 +214,22 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         executor=retrieval_executor,
     )
 
+    # Recall coordinator (DO-09). The coordinator takes the **already-wrapped**
+    # retriever above — it does not own an executor and does not wrap again.
+    # ``TrivialGate`` short-circuits trivial prompts inside the coordinator,
+    # and the similarity threshold drops weakly-related hits before they
+    # reach the LLM context.
+    trivial_gate = TrivialGate(
+        max_chars=settings.trivial_gate_max_chars,
+        max_words=settings.trivial_gate_max_words,
+    )
+    recall_coordinator = RecallCoordinator(
+        retriever=retriever,
+        gate=trivial_gate,
+        top_k=settings.recall_top_k,
+        similarity_threshold=settings.recall_similarity_threshold,
+    )
+
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
@@ -218,7 +238,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         chunker=chunker,
         embedder=embedder,
         vector_store=vector_store,
-        retriever=retriever,
+        coordinator=recall_coordinator,
     )
     app_state = AppState(
         version=__version__,

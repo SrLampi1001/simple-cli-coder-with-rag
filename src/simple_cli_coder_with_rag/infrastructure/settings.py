@@ -142,6 +142,32 @@ class Settings(BaseSettings):
     # is the value ``OBJECTIVES.md`` pins for v1.
     retrieval_timeout_seconds: float = 1.5
 
+    # Recall pipeline tuning (DO-09). ``recall_top_k`` caps how many
+    # chunks the retriever returns for a single user prompt — small
+    # enough to keep the LLM context window manageable, large enough
+    # that "obvious" hits land inside the slice. Default ``3`` matches
+    # the OBJECTIVES latency tip ("top-k 3 or so"). Override via the
+    # ``RECALL_TOP_K`` env var.
+    recall_top_k: int = 3
+
+    # Minimum cosine similarity for a recalled chunk to be injected into
+    # the chat prompt (DO-09). Chunks below the threshold are dropped
+    # from the coordinator's output — keeps weakly-related noise out of
+    # the LLM context. Default ``0.5`` is a conservative floor for
+    # ``bge-small-en-v1.5`` cosine scores; tune up for stricter
+    # precision, down for higher recall. Override via
+    # ``RECALL_SIMILARITY_THRESHOLD``.
+    recall_similarity_threshold: float = 0.5
+
+    # Trivial-gate bounds (DO-09). A prompt is "trivial" when it
+    # satisfies BOTH bounds (inclusive ``<=``), and the
+    # :class:`~simple_cli_coder_with_rag.application.trivial_gate.TrivialGate`
+    # short-circuits the recall path entirely. Defaults ``20`` chars and
+    # ``4`` words match the OBJECTIVES latency tip. Override via
+    # ``TRIVIAL_GATE_MAX_CHARS`` / ``TRIVIAL_GATE_MAX_WORDS``.
+    trivial_gate_max_chars: int = 20
+    trivial_gate_max_words: int = 4
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
