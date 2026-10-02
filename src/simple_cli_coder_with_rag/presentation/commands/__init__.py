@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     )
     from simple_cli_coder_with_rag.application.session_store import SessionStore
     from simple_cli_coder_with_rag.domain.chunker import Chunker
+    from simple_cli_coder_with_rag.domain.embedder import Embedder
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
     from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -50,6 +51,13 @@ class AppState:
     :class:`~simple_cli_coder_with_rag.application.session_store.SessionStore`;
     ``None`` is permitted only for tests that do not exercise the
     session-store path.
+
+    ``embedder`` is the ``Embedder`` Protocol implementation built by
+    the composition root (DO-06 — ``FastembedEmbedder``). The embedder
+    loads on a daemon thread, so ``is_ready()`` may return ``False``
+    when the REPL first opens; ``KnowledgeService.recall`` (DO-09)
+    short-circuits to "no memories" in that case. ``None`` is permitted
+    only for tests that do not exercise the embedder surface.
     """
 
     version: str
@@ -60,6 +68,7 @@ class AppState:
     session_id: str = ""
     session_store: SessionStore | None = None
     chunker: Chunker | None = None
+    embedder: Embedder | None = None
 
 
 @dataclass(frozen=True)

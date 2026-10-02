@@ -74,6 +74,22 @@ class Settings(BaseSettings):
     # ``ValidationError`` instead of a deferred ``KeyError`` in the REPL.
     chunker_strategy: Literal["fixed", "semantic"] = "fixed"
 
+    # HuggingFace repo id for the local embedding model (DO-06). The
+    # default ``BAAI/bge-small-en-v1.5`` is the 384-dim BGE model
+    # ``docs/development-tools.md`` §5 pins — ONNX runtime via
+    # ``fastembed``, English-only (an accepted v1 limitation). Override
+    # via the ``EMBEDDING_MODEL`` env var to swap behind the same
+    # ``Embedder`` Protocol when a multilingual model is needed.
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+
+    # Whether the embedder should skip the HuggingFace network check
+    # when the model is already cached locally. ``True`` (default)
+    # makes subsequent runs truly offline — ``fastembed`` calls the HF
+    # API on every ``TextEmbedding()`` constructor invocation to verify
+    # the cache, even with ``cache_dir`` set. Override via
+    # ``EMBEDDING_LOCAL_FILES_ONLY`` env var (``0`` / ``1``).
+    embedding_local_files_only: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

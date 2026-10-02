@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
+
+import platformdirs
 
 from simple_cli_coder_with_rag import __version__
 from simple_cli_coder_with_rag.application.compactor import Compactor
@@ -25,6 +28,7 @@ from simple_cli_coder_with_rag.application.knowledge_service import (
     build_chunker,
 )
 from simple_cli_coder_with_rag.application.session_store import SessionStore
+from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
 from simple_cli_coder_with_rag.infrastructure.logging import configure_logging
@@ -86,6 +90,17 @@ def main(argv: list[str] | None = None) -> int:
         # prompt would corrupt the message.
         return 2
 
+    # Flip the embedder module's ``_REPL_ACTIVE`` flag **before**
+    # ``repl.run()``. From this point on, the embedder's background
+    # thread routes the cold-cache download notice through the log file
+    # instead of stderr — ``prompt_toolkit`` owns the screen during
+    # ``repl.run()`` and would corrupt the prompt otherwise. The flag
+    # lives in ``infrastructure.embedders.fastembed_embedder``; this is
+    # the only place the presentation layer touches it.
+    from simple_cli_coder_with_rag.infrastructure.embedders import fastembed_embedder
+
+    fastembed_embedder._REPL_ACTIVE = True
+
     registry = _build_registry()
     repl = Repl(registry=registry, app_state=app_state)
     repl.run()
@@ -122,6 +137,19 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
     compactor = Compactor(llm=llm_client, compactor_model=compactor_model)
     chunker = build_chunker(settings.chunker_strategy)
 
+    # Embedder (DO-06). Built on a daemon thread so the REPL can open
+    # before the ~130 MB BGE-small download finishes. The cache dir sits
+    # under ``platformdirs.user_cache_dir`` so the model survives reboots
+    # and reinstalls (per ``docs/development-tools.md`` §5). We do not
+    # call ``warmup()`` here; the background thread drives the load and
+    # downstream callers gate on ``is_ready()``.
+    embedder_cache_dir = Path(platformdirs.user_cache_dir("simple-cli-coder-with-rag")) / "models"
+    embedder = FastembedEmbedder(
+        model_name=settings.embedding_model,
+        cache_dir=embedder_cache_dir,
+        local_files_only=settings.embedding_local_files_only,
+    )
+
     knowledge = KnowledgeService(
         llm=llm_client,
         chat_model=chat_model,
@@ -136,6 +164,7 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None]:
         session_id=session_id,
         session_store=session_store,
         chunker=chunker,
+        embedder=embedder,
     )
     return settings, app_state
 

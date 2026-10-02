@@ -76,6 +76,7 @@ disallow_untyped_defs = true
 
 [tool.importlinter]
 root_package = "simple_cli_coder_with_rag"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 name = "layered-architecture"
@@ -86,3 +87,23 @@ layers = [
     "simple_cli_coder_with_rag.application",
     "simple_cli_coder_with_rag.domain",
 ]
+
+# Regression guard (DO-06): ``fastembed`` is a heavy dependency that
+# pins an ONNX runtime. It must only appear in
+# ``infrastructure/embedders/fastembed_embedder.py``. No upper-layer
+# module (``application``, ``domain``, ``presentation``) may import it
+# directly. Indirect imports through the embedder are tolerated because
+# the composition root in ``cli.py`` legitimately constructs a
+# ``FastembedEmbedder`` — the chain
+# ``cli.py -> infrastructure.embedders.fastembed_embedder -> fastembed``
+# is the only path that may reach it.
+[[tool.importlinter.contracts]]
+name = "fastembed-only-in-embedders"
+type = "forbidden"
+source_modules = [
+    "simple_cli_coder_with_rag.application",
+    "simple_cli_coder_with_rag.domain",
+    "simple_cli_coder_with_rag.presentation",
+]
+forbidden_modules = ["fastembed"]
+allow_indirect_imports = true
