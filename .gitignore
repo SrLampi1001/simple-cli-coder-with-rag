@@ -54,3 +54,6 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# AI sessions
+/coding-assistance/json-sessions/

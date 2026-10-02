@@ -40,6 +40,10 @@ Deliverables are numbered and ordered by dependency. They must be completed in o
 | [08](./08-retriever-with-decorator/) | Retriever + timeout decorator | (foundation) |
 | [09](./09-recall-integration/) | Recall in chat (semantic search before prompt) | *"A prompt triggers semantic search and retrieves the important context"* |
 | [10](./10-file-editing/) | File editing | *"The AI agent can edit files"* |
+| [11](./11-provider-registry-and-sdk-integrations/) | Provider registry (JSON) + official OpenAI SDK + real Anthropic SDK + `/connect`, `/providers`, `/provider` | (TL criterion #2: multi-provider with both official SDKs) |
+| [12](./12-session-memory-and-saved-chats/) | Session memory, context-window compaction, `/memory`, `/chats`, `/resume <id>`, `/compact` | (TL criterion #3: saved chats + 10-message rolling window) |
+| [13](./13-rag-over-documents-supabase/) | RAG over local documents (PDF / MD / TXT) with Supabase + pgvector + source metadata | (TL criteria #4 + #8: document RAG + deployed vector store) |
+| [14](./14-custom-skills/) | Custom skills (knowledge-base-lookup, summarization) — auto-invoked by DO-11 → DO-13 commands | (TL criterion #5: at least 2 reusable skills in a working demo) |
 
 ## The contract system (the warranty between deliverables)
 

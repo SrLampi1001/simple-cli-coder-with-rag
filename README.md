@@ -271,6 +271,61 @@ must pass before it can be marked done.
 
 ---
 
+## Helpers
+
+### Building `coding-assitance/prompts.jsonl`
+
+The `coding-assitance/prompts.jsonl` file is built from the OpenCode
+session exports under `coding-assitance/json-sessions/`. The script reads
+each `*.json` session, extracts every **user prompt** (messages with
+`type: "user"`), and writes one JSON line per prompt into `prompts.jsonl`.
+Assistant replies (`type: "assistant"`) and idle markers (`type: "idle"`)
+are skipped, so the file contains only what was actually sent to the AI.
+
+Each line wraps the original user message with session-level context
+extracted from the parent file's `info` block:
+
+```json
+{
+  "session_id":    "ses_…",
+  "session_title": "…",
+  "agent":         "build",
+  "model":         {"id": "…", "providerID": "…", "variant": "…"},
+  "source_file":   "session-<uuid>.json",
+  "message": {
+    "id":    "msg_…",
+    "type":  "user",
+    "time":  {"created": <epoch_ms>},
+    "text":  "<prompt body>",
+    "files": [...]
+  }
+}
+```
+
+The prompt body lives at `message.text`; referenced attachments (file
+mentions / inline data) live at `message.files`.
+
+Run from the project root:
+
+```bash
+uv run python scripts/prompts_jsonl.py
+```
+
+Both paths default to the locations above and can be overridden:
+
+```bash
+uv run python scripts/prompts_jsonl.py \
+    --source-dir coding-assitance/json-sessions \
+    --output    coding-assitance/prompts.jsonl
+```
+
+The script prints how many user prompts were written on success and
+exits with status `0`. It exits `2` if the source directory is missing
+and `1` with a warning if no user prompts are found (the output is still
+created, empty, in that case).
+
+---
+
 ## License
 
 TBD.
