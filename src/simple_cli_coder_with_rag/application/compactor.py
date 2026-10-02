@@ -115,19 +115,63 @@ class Compactor:
         prompt_messages = _build_compaction_messages(messages)
         raw_reply = self._llm.complete(prompt_messages, model=self._compactor_model)
 
+        # Strip a ```json ... ``` wrapper if the model added one. Defensive —
+        # some providers occasionally add fences even when asked not to.
+        cleaned_reply = _strip_markdown_fences(raw_reply)
+
+        # 1. The reply must be parseable JSON. A non-JSON reply is a
+        #    hallucination we cannot recover from.
         try:
-            parsed = CompactedSession.model_validate_json(raw_reply)
-        except (ValidationError, json.JSONDecodeError) as exc:
+            data = json.loads(cleaned_reply)
+        except json.JSONDecodeError as exc:
+            raise CompactionError(f"compactor received a non-JSON reply: {raw_reply!r}") from exc
+
+        if not isinstance(data, dict):
             raise CompactionError(
-                f"compactor received an unparseable reply: {raw_reply!r}"
+                f"compactor expected a JSON object, got {type(data).__name__}: {raw_reply!r}"
+            )
+
+        # 2. ``session_id`` and ``created_at`` are identity stamps — the
+        #    caller owns them and the on-disk JSON cannot drift away from
+        #    the id that owned it. Real LLM responses routinely omit them
+        #    (verified against NVIDIA Llama + Mistral), so we set them
+        #    before validation rather than after.
+        data["session_id"] = session_id
+        data["created_at"] = datetime.now(UTC).isoformat()
+
+        # 3. Validate the (now complete) dict. Schema-level mistakes
+        #    (missing ``summary``, ``occurrences < 1``, ...) land here.
+        try:
+            parsed = CompactedSession.model_validate(data)
+        except ValidationError as exc:
+            raise CompactionError(
+                f"compactor received JSON that does not match the CompactedSession schema: {data!r}"
             ) from exc
 
-        # The model decides ``summary`` / ``errors`` / ``decisions``; we
-        # always override ``session_id`` and ``created_at`` so the on-disk
-        # JSON cannot drift away from the id that owned it.
-        parsed.session_id = session_id
-        parsed.created_at = datetime.now(UTC)
         return parsed
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Return ``text`` with a leading/trailing ```` ``` ```` fence removed, if any.
+
+    Some models wrap replies in ```` ```json ... ``` ``` even when the prompt
+    forbids it. The compactor's prompt already instructs the LLM to emit raw
+    text, so this is purely defensive — it lets the rest of the parsing
+    logic stay strict (no leading-prose detection, no fallback regexes).
+    Only a fence whose first line is a language tag (``json``,
+    ``JSON``, ``..``, …) is stripped; leading prose would be a real
+    malformed reply and is surfaced as ``CompactionError``.
+    """
+    stripped = text.strip()
+    if not (stripped.startswith("```") and stripped.endswith("```")):
+        return text
+    # Drop the opening fence line (everything up to and including the
+    # first newline) and the closing fence line.
+    first_nl = stripped.find("\n")
+    if first_nl == -1:
+        return text
+    inner = stripped[first_nl + 1 : -3]
+    return inner.strip()
 
 
 def _build_compaction_messages(messages: list[Message]) -> list[Message]:
@@ -172,4 +216,5 @@ __all__ = [
     # Internal helpers are exported for tests that want to introspect the
     # prompt shape directly; production code should treat them as private.
     "_build_compaction_messages",
+    "_strip_markdown_fences",
 ]

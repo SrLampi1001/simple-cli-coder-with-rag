@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from simple_cli_coder_with_rag import __version__
+from simple_cli_coder_with_rag.application.compactor import CompactionError
 from simple_cli_coder_with_rag.domain.llm_client import LLMError
 from simple_cli_coder_with_rag.domain.messages import (
     AssistantMessage,
@@ -95,6 +96,29 @@ def test_learn_command_handles_llm_error(mocker: MockerFixture) -> None:
     assert result.action == "continue"
     assert result.message is not None
     assert result.message.startswith("learn failed: ")
+
+
+def test_learn_command_handles_compaction_error(mocker: MockerFixture) -> None:
+    """On ``CompactionError`` (LLM gave an unparseable response) the REPL must
+    survive the trial. Without this catch the exception would propagate out of
+    ``Repl._handle`` and crash the interactive session.
+    """
+    knowledge = mocker.MagicMock()
+    knowledge.learn.side_effect = CompactionError("schema mismatch")
+
+    app_state = AppState(
+        version=__version__,
+        knowledge=knowledge,  # type: ignore[arg-type]
+        session_id="sid",
+        history=[UserMessage(content="hi")],
+    )
+
+    result = LearnCommand().execute(_make_context(app_state))
+
+    assert result.action == "continue"
+    assert result.message is not None
+    assert result.message.startswith("learn failed: ")
+    assert "schema mismatch" in result.message
 
 
 def test_learn_command_is_registered() -> None:

@@ -17,6 +17,7 @@ replace it with the real count once the chunker lands.
 
 from __future__ import annotations
 
+from simple_cli_coder_with_rag.application.compactor import CompactionError
 from simple_cli_coder_with_rag.domain.llm_client import LLMError
 from simple_cli_coder_with_rag.presentation.commands import (
     CommandContext,
@@ -40,7 +41,11 @@ class LearnCommand:
             )
         try:
             knowledge.learn(session_id, list(history))
-        except LLMError as exc:
+        except (LLMError, CompactionError) as exc:
+            # Both failure modes — the LLM client blew up, or the LLM's
+            # reply failed schema validation — are surfaced as a one-line
+            # error message and the REPL keeps running. Anything else
+            # (programming bug) still propagates out so the user notices.
             return CommandResult(action="continue", message=f"learn failed: {exc}")
         return CommandResult(action="continue", message="learned 0 chunks")
 

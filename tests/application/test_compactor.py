@@ -141,3 +141,55 @@ def test_compactor_short_circuits_on_empty_messages(mocker: MockerFixture) -> No
     assert result.errors == []
     assert result.decisions == []
     assert result.session_id == "sid"
+
+
+def test_compactor_overrides_missing_identity_fields(mocker: MockerFixture) -> None:
+    """Real LLMs (verified against NVIDIA Llama) omit ``session_id`` and ``created_at``.
+
+    The compactor must inject the values it was called with before
+    validation, so a perfectly valid LLM reply that lacks those two
+    identity stamps is still accepted.
+    """
+    fake_llm = mocker.MagicMock()
+    # Real Llama response shape: no session_id, no created_at.
+    fake_llm.complete.return_value = (
+        '{"summary": "user asked about reading JSON",'
+        ' "errors": [],'
+        ' "decisions": [{"summary": "use json.load", "rationale": "stdlib"}]}'
+    )
+
+    compactor = Compactor(llm=fake_llm, compactor_model="m")
+    before = datetime.now(UTC)
+    result = compactor.compact("real-sid", [UserMessage(content="hi")])
+    after = datetime.now(UTC)
+
+    assert result.session_id == "real-sid"
+    assert before - timedelta(seconds=5) <= result.created_at <= after + timedelta(seconds=5)
+    assert result.summary == "user asked about reading JSON"
+    assert len(result.decisions) == 1
+
+
+def test_compactor_strips_markdown_fences(mocker: MockerFixture) -> None:
+    """A ```json ... ``` wrapper is removed before parsing."""
+    fake_llm = mocker.MagicMock()
+    fake_llm.complete.return_value = (
+        '```json\n{\n  "summary": "ok",\n  "errors": [],\n  "decisions": []\n}\n```'
+    )
+
+    compactor = Compactor(llm=fake_llm, compactor_model="m")
+    result = compactor.compact("sid", [UserMessage(content="hi")])
+
+    assert result.summary == "ok"
+    assert result.session_id == "sid"  # identity fields injected
+    assert result.created_at is not None
+
+
+def test_compactor_rejects_non_object_reply(mocker: MockerFixture) -> None:
+    """A JSON array (or other non-object reply) raises ``CompactionError``."""
+    fake_llm = mocker.MagicMock()
+    fake_llm.complete.return_value = '["not", "an", "object"]'
+
+    compactor = Compactor(llm=fake_llm, compactor_model="m")
+
+    with pytest.raises(CompactionError):
+        compactor.compact("sid", [UserMessage(content="hi")])
