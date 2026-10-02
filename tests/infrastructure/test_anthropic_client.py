@@ -140,12 +140,13 @@ def test_adapter_uses_provider_base_url(mocker: MockerFixture) -> None:
     assert call.kwargs["base_url"] == "https://api.minimax.io/anthropic"
 
 
-def test_adapter_uses_auth_token_header(mocker: MockerFixture) -> None:
-    """The SDK's ``auth_token`` parameter sets the ``Authorization: Bearer`` header.
+def test_adapter_uses_api_key_header(mocker: MockerFixture) -> None:
+    """The SDK's ``api_key`` parameter sets the ``x-api-key`` header.
 
-    MiniMax's curl examples use ``Authorization: Bearer``; the Anthropic SDK's
-    ``api_key`` parameter sets ``x-api-key`` instead, so we must use
-    ``auth_token`` for the Bearer scheme.
+    Both ``https://api.anthropic.com`` and the MiniMax Anthropic-compat
+    endpoint accept ``x-api-key``; MiniMax returns 401 ``X-Api-Key`` if
+    only ``Authorization: Bearer`` is sent, so the adapter passes the
+    key as ``api_key``.
     """
     fake_anthropic = mocker.patch("anthropic.Anthropic")
 
@@ -156,10 +157,7 @@ def test_adapter_uses_auth_token_header(mocker: MockerFixture) -> None:
     )
 
     call = fake_anthropic.call_args
-    assert (
-        call.kwargs.get("auth_token") == "minimax-key"
-        or call.kwargs.get("api_key") == "minimax-key"
-    )
+    assert call.kwargs.get("api_key") == "minimax-key"
 
 
 class _FakeAnthropicError(Exception):

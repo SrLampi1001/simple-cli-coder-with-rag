@@ -6,12 +6,14 @@ Anthropic-compatible endpoint via ``base_url`` (e.g. MiniMax at
 ``max_retries`` + exponential backoff, so we do not layer an extra retry
 library on top (per ``docs/development-tools.md`` §6 and §8).
 
-Auth scheme note: we pass the key as ``auth_token`` (Bearer), not the
-SDK's default ``x-api-key`` header, because MiniMax's HTTP API requires
-``Authorization: Bearer <key>``; the same credential works against the
-official ``https://api.anthropic.com`` endpoint. The mock tests in
-``test_anthropic_client.py`` confirm the adapter passes the key as
-``auth_token``.
+Auth scheme note: the Anthropic SDK's ``api_key`` parameter sets the
+``x-api-key`` header (the Anthropic API's official auth scheme) and the
+SDK's ``auth_token`` parameter sets ``Authorization: Bearer``. Both
+``https://api.anthropic.com`` and the MiniMax Anthropic-compatible endpoint
+(``https://api.minimax.io/anthropic``) accept the ``x-api-key`` header, so
+the adapter passes the key via ``api_key=`` for maximum compatibility. The
+mock tests in ``test_anthropic_client.py`` confirm the adapter passes the
+key as ``api_key``.
 
 DO-10 fully implements ``complete_with_tools``. The previous stub returned
 ``tool_calls=[]``; this version walks the response's content blocks,
@@ -64,7 +66,7 @@ class AnthropicLLMClient:
         # adapter; constructing it more than once would defeat connection
         # pooling and inflate per-call latency.
         self._client = anthropic.Anthropic(
-            auth_token=api_key,
+            api_key=api_key,
             base_url=base_url,
         )
         self._default_model = default_model
