@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from simple_cli_coder_with_rag.application.knowledge_service import (
         KnowledgeService,
     )
+    from simple_cli_coder_with_rag.application.session_store import SessionStore
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
     from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -36,6 +37,18 @@ class AppState:
     ``knowledge`` is wired by the composition root in ``cli.py`` once
     the active provider's adapter is built. It defaults to ``None`` so
     unit tests that don't need an LLM can construct a bare ``AppState``.
+
+    ``session_id`` is a UUIDv4 hex string generated at startup by the
+    composition root (via ``SessionStore.current_id``). It is the
+    identifier the REPL passes to ``KnowledgeService.learn`` when the
+    user runs ``/learn``, and the filename prefix used by the session
+    store (``<root>/<session_id>.jsonl`` and ``<root>/<session_id>.compacted.json``).
+
+    ``session_store`` is the on-disk store for transcripts and
+    compacted JSON. The composition root wires the real
+    :class:`~simple_cli_coder_with_rag.application.session_store.SessionStore`;
+    ``None`` is permitted only for tests that do not exercise the
+    session-store path.
     """
 
     version: str
@@ -43,6 +56,8 @@ class AppState:
     knowledge: KnowledgeService | None = None
     history: list[Message] = field(default_factory=list)
     history_cap: int = 20
+    session_id: str = ""
+    session_store: SessionStore | None = None
 
 
 @dataclass(frozen=True)

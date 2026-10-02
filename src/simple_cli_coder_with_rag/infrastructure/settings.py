@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     # ``getattr(settings, f"{default_provider}_model")``.
     chat_model: str = ""
 
+    # The model used by the ``/learn`` compaction pipeline. Empty string
+    # (default) means "fall back to the active provider's per-provider
+    # default", same pattern as ``chat_model`` above. Override via the
+    # ``COMPACTOR_MODEL`` env var.
+    compactor_model: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
