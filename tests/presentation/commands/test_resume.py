@@ -51,7 +51,7 @@ def _write_transcript(store: SessionStore, session_id: str, count: int) -> None:
 def test_resume_with_valid_id_replaces_history_with_last_n(tmp_path: Path) -> None:
     """A 50-message transcript is trimmed to the last 20 (= 10 turns)."""
     store = SessionStore(tmp_path)
-    _write_transcript(store, "abc1234567deadbeef", 25)  # 50 messages
+    _write_transcript(store, "abc1234567deadbeefabc1234567deadbe", 25)  # 50 messages
 
     state = AppState(
         version=__version__,
@@ -60,18 +60,21 @@ def test_resume_with_valid_id_replaces_history_with_last_n(tmp_path: Path) -> No
         history=[],
     )
 
-    result = ResumeCommand().execute(_context(state, "abc1234567deadbeef"))
+    result = ResumeCommand().execute(_context(state, "abc1234567deadbeefabc1234567deadbe"))
     message = result.message or ""
 
     assert result.action == "continue"
-    assert "resumed abc1234567deadbeef (20 of 50 messages loaded)" in message
-    assert state.session_id == "abc1234567deadbeef"
+    assert "resumed abc1234567deadbeefabc1234567deadbe (20 of 50 messages loaded)" in message
+    assert state.session_id == "abc1234567deadbeefabc1234567deadbe"
     assert len(state.history) == 20
     # The last 10 turns (= 20 messages) of the original transcript.
     # ``SessionStore.read`` returns base ``Message`` instances, so
     # compare against the same shape here.
     assert state.history[-1] == Message(role="assistant", content="reply-24")
     assert state.history[0] == Message(role="user", content="msg-15")
+    # The loaded messages are printed inline (OpenCode-style UX).
+    assert "[1] USER: msg-15" in message
+    assert "[20] ASSISTANT: reply-24" in message
 
 
 def test_resume_with_short_transcript_loads_verbatim(tmp_path: Path) -> None:
@@ -94,6 +97,10 @@ def test_resume_with_short_transcript_loads_verbatim(tmp_path: Path) -> None:
         Message(role="user", content="b"),
     ]
     assert state.session_id == "short"
+    # The loaded messages are printed inline.
+    assert "[1] USER: a" in (result.message or "")
+    assert "[2] ASSISTANT: A" in (result.message or "")
+    assert "[3] USER: b" in (result.message or "")
 
 
 def test_resume_missing_id_returns_usage_message(tmp_path: Path) -> None:
@@ -153,7 +160,7 @@ def test_resume_does_not_call_llm(tmp_path: Path, mocker: MockerFixture) -> None
 def test_resume_overwrites_existing_history(tmp_path: Path) -> None:
     """An existing /app_state.history is fully replaced (no merge, no append)."""
     store = SessionStore(tmp_path)
-    _write_transcript(store, "abc1234567deadbeef", 2)  # 4 messages
+    _write_transcript(store, "abc1234567deadbeefabc1234567deadbe", 2)  # 4 messages
 
     state = AppState(
         version=__version__,
@@ -162,26 +169,26 @@ def test_resume_overwrites_existing_history(tmp_path: Path) -> None:
         history=[UserMessage(content="old"), AssistantMessage(content="OLD")],
     )
 
-    ResumeCommand().execute(_context(state, "abc1234567deadbeef"))
+    ResumeCommand().execute(_context(state, "abc1234567deadbeefabc1234567deadbe"))
 
     # The old messages are gone; the resumed transcript is the only thing left.
     assert len(state.history) == 4
     assert state.history[0] == Message(role="user", content="msg-0")
     assert state.history[-1] == Message(role="assistant", content="reply-1")
-    assert state.session_id == "abc1234567deadbeef"
+    assert state.session_id == "abc1234567deadbeefabc1234567deadbe"
 
 
 def test_resume_strips_trailing_whitespace_from_arg(tmp_path: Path) -> None:
     """A trailing newline / extra whitespace in the arg is tolerated."""
     store = SessionStore(tmp_path)
-    _write_transcript(store, "abc1234567deadbeef", 1)
+    _write_transcript(store, "abc1234567deadbeefabc1234567deadbe", 1)
 
     state = AppState(version=__version__, session_id="", session_store=store, history=[])
 
-    result = ResumeCommand().execute(_context(state, "  abc1234567deadbeef  \n"))
+    result = ResumeCommand().execute(_context(state, "  abc1234567deadbeefabc1234567deadbe  \n"))
 
-    assert "resumed abc1234567deadbeef" in (result.message or "")
-    assert state.session_id == "abc1234567deadbeef"
+    assert "resumed abc1234567deadbeefabc1234567deadbe" in (result.message or "")
+    assert state.session_id == "abc1234567deadbeefabc1234567deadbe"
 
 
 def test_resume_with_custom_cap(tmp_path: Path) -> None:
@@ -189,7 +196,7 @@ def test_resume_with_custom_cap(tmp_path: Path) -> None:
     from simple_cli_coder_with_rag.infrastructure.settings import Settings
 
     store = SessionStore(tmp_path)
-    _write_transcript(store, "abc1234567deadbeef", 10)  # 20 messages
+    _write_transcript(store, "abc1234567deadbeefabc1234567deadbe", 10)  # 20 messages
 
     settings = Settings(int_history_cap=2)
     state = AppState(
@@ -200,9 +207,12 @@ def test_resume_with_custom_cap(tmp_path: Path) -> None:
         settings=settings,
     )
 
-    result = ResumeCommand().execute(_context(state, "abc1234567deadbeef"))
+    result = ResumeCommand().execute(_context(state, "abc1234567deadbeefabc1234567deadbe"))
 
     assert "4 of 20 messages loaded" in (result.message or "")
     assert len(state.history) == 4
     assert state.history[-1] == Message(role="assistant", content="reply-9")
     assert state.history[0] == Message(role="user", content="msg-8")
+    # The inline print matches /memory's format.
+    assert "[1] USER: msg-8" in (result.message or "")
+    assert "[4] ASSISTANT: reply-9" in (result.message or "")

@@ -15,6 +15,9 @@ The command is deliberately minimal:
    turns persist to the resumed session.
 5. Advance ``app_state.persisted_through`` so the loaded
    messages are never re-appended.
+6. **Print the loaded messages inline** — the same shape
+   ``/memory`` produces, so the user immediately sees the
+   conversation they just switched to (OpenCode-style UX).
 
 There is **no** LLM call, **no** compactor invocation, **no**
 summary generation, and **no** blocking pause. ``NEW_REQUIREMENTS.md``
@@ -29,6 +32,9 @@ from simple_cli_coder_with_rag.presentation.commands import (
     CommandContext,
     CommandResult,
 )
+from simple_cli_coder_with_rag.presentation.commands.memory import (
+    format_messages_for_display,
+)
 
 # DO-12 fallback cap when ``app_state.settings`` is ``None``.
 _DEFAULT_HISTORY_CAP_TURNS = 10
@@ -38,7 +44,7 @@ class ResumeCommand:
     """``/resume <session-id>``: load a saved chat and continue it."""
 
     name = "resume"
-    summary = "Resume a saved chat session by id."
+    summary = "Resume a saved chat session by id (prints the loaded messages)."
 
     def execute(self, context: CommandContext) -> CommandResult:
         state: AppState = context.app_state
@@ -70,10 +76,14 @@ class ResumeCommand:
         # All loaded messages are already on disk; advance the
         # REPL's persistence pointer so they are never re-appended.
         state.persisted_through = len(state.history)
-        return CommandResult(
-            action="continue",
-            message=(f"resumed {session_id} ({len(last_n)} of {len(transcript)} messages loaded)."),
-        )
+
+        # Print the loaded messages inline so the user immediately
+        # sees the conversation they just switched to. Same shape
+        # as ``/memory`` — single formatter keeps the two surfaces
+        # in sync.
+        header = f"resumed {session_id} ({len(last_n)} of {len(transcript)} messages loaded):"
+        body = format_messages_for_display(last_n)
+        return CommandResult(action="continue", message=f"{header}\n{body}")
 
     @staticmethod
     def _resolve_history_cap(state: AppState) -> int:

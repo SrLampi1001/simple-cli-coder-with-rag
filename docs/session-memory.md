@@ -72,9 +72,9 @@ outside `[1, 100]` are rejected at boot.
 
 ## Slash commands
 
-### `/memory`
+### `/context`
 
-Prints the active conversation window off `AppState` directly:
+Prints the active window's metadata off `AppState` directly:
 
 ```
 session:    abc1234567deadbeefabc1234567deadbe
@@ -86,7 +86,7 @@ last assistant: hello! how can I help?
 ```
 
 The values are pinned by
-`tests/presentation/commands/test_memory.py`:
+`tests/presentation/commands/test_context.py`:
 
 * `session` is the **full** `app_state.session_id` (32 chars) so
   you can copy-paste it straight into `/resume <id>`. The short
@@ -100,7 +100,26 @@ The values are pinned by
 * When the history is empty, both tail lines read
   `(no messages yet)`.
 
-There is no LLM call — `/memory` is a pure read off `AppState`.
+There is no LLM call — `/context` is a pure read off `AppState`.
+
+### `/memory`
+
+Prints the last 10 messages in the active window — exactly what
+the LLM sees on every chat turn. Each message is rendered as
+`[N] ROLE: content` on its own line:
+
+```
+>>> /memory
+[1] USER: hello there
+[2] ASSISTANT: hi! how can I help?
+[3] USER: what's 2+2?
+[4] ASSISTANT: four
+```
+
+Empty history renders as `(no messages in the active window)`.
+There is no LLM call and no session-store read — the command
+reads `app_state.history` directly. The formatter is shared with
+`/resume <id>` so the two surfaces render the same shape.
 
 ### `/chats`
 
@@ -150,16 +169,25 @@ for a later `/resume` without hunting through `/chats`.
 
 Loads the last `2 * INT_HISTORY_CAP` messages (= the last
 `INT_HISTORY_CAP` user/assistant turns) of `<id>.jsonl` into the
-active history, swaps `app_state.session_id = <id>`, and returns
-immediately. New messages you type after `/resume` are appended to
-the same `<id>.jsonl`, so the conversation continues as if it had
-never been paused.
+active history, swaps `app_state.session_id = <id>`, and prints
+the loaded messages inline so you immediately see the conversation
+you just switched to.
 
 ```
->>> /resume abc1234567deadbeef
-resumed abc1234567deadbeef (20 of 50 messages loaded).
+>>> /resume abc1234567deadbeefabc1234567deadbe
+resumed abc1234567deadbeefabc1234567deadbe (4 of 4 messages loaded):
+[1] USER: hi from yesterday
+[2] ASSISTANT: Yesterday the assistant replied
+[3] USER: how are you?
+[4] ASSISTANT: I am well
 >>>
 ```
+
+The printed body uses `format_messages_for_display` — the same
+helper `/memory` uses — so the resume output and a follow-up
+`/memory` always show the same shape. Subsequent chat turns are
+appended to the same `<id>.jsonl`, so the conversation continues
+as if it had never been paused.
 
 `/resume` is **synchronous and non-blocking**:
 

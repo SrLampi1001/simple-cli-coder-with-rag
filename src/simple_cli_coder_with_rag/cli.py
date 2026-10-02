@@ -75,6 +75,7 @@ from simple_cli_coder_with_rag.presentation.commands import AppState
 from simple_cli_coder_with_rag.presentation.commands.chats import ChatsCommand
 from simple_cli_coder_with_rag.presentation.commands.clear import ClearCommand
 from simple_cli_coder_with_rag.presentation.commands.connect import ConnectCommand
+from simple_cli_coder_with_rag.presentation.commands.context import ContextCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
 from simple_cli_coder_with_rag.presentation.commands.help import HelpCommand
 from simple_cli_coder_with_rag.presentation.commands.learn import LearnCommand
@@ -112,10 +113,11 @@ def _build_registry() -> CommandRegistry:
     registry.register(ConnectCommand())
     registry.register(ProvidersCommand())
     registry.register(ProviderCommand())
-    registry.register(MemoryCommand())
     registry.register(ChatsCommand())
     registry.register(ResumeCommand())
     registry.register(NewCommand())
+    registry.register(ContextCommand())
+    registry.register(MemoryCommand())
     return registry
 
 

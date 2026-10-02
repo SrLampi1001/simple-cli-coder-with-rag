@@ -1,19 +1,17 @@
-"""Tests for ``MemoryCommand`` (DO-12).
+"""Tests for ``MemoryCommand`` (DO-12 / NEW_REQUIREMENTS §3).
 
-Pinned by ``agent-development/12-session-memory-and-saved-chats/tests.md``.
+``/memory`` prints the last 10 messages in the active window — the
+content the LLM actually sees on every chat turn. ``NEW_REQUIREMENTS.md``
+§3 specifies *"Provide /memory to inspect the active window"*.
 
-The command formats the active conversation window off
-``AppState`` directly — no LLM call, no session-store read.
-The pinned format (multi-line, with a fixed 60-char truncation
-on the last user / assistant line) is the regression guard for
-``/memory``'s contract.
+The command delegates to ``format_messages_for_display``, which is
+also used by ``/resume <id>`` so the two surfaces stay in sync.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from simple_cli_coder_with_rag import __version__
 from simple_cli_coder_with_rag.application.session_store import SessionStore
@@ -22,10 +20,10 @@ from simple_cli_coder_with_rag.domain.messages import (
     UserMessage,
 )
 from simple_cli_coder_with_rag.presentation.commands import AppState, CommandContext
-from simple_cli_coder_with_rag.presentation.commands.memory import MemoryCommand
-
-if TYPE_CHECKING:
-    pass
+from simple_cli_coder_with_rag.presentation.commands.memory import (
+    MemoryCommand,
+    format_messages_for_display,
+)
 
 
 @dataclass
@@ -40,32 +38,42 @@ def _context(app_state: AppState) -> CommandContext:
     return CommandContext(repl=_StubRepl(), app_state=app_state)  # type: ignore[arg-type]
 
 
-def test_memory_with_active_session_returns_readout(tmp_path: Path) -> None:
-    """The readout contains every pinned line and the full session id."""
-    store = SessionStore(tmp_path)
-    full_id = "abc1234567deadbeefabc1234567deadbe"  # 32 chars
+def test_memory_prints_each_message_on_its_own_line() -> None:
+    """Every message in ``history`` appears as ``[N] ROLE: content`` on its own line."""
+    history = [
+        UserMessage(content="hello"),
+        AssistantMessage(content="hi! how can I help?"),
+        UserMessage(content="what's 2+2?"),
+        AssistantMessage(content="four"),
+    ]
+    full_id = "abc1234567deadbeefabc1234567deadbe"
+    state = AppState(version=__version__, session_id=full_id, history=history)
+
+    result = MemoryCommand().execute(_context(state))
+    message = result.message or ""
+
+    assert "[1] USER: hello" in message
+    assert "[2] ASSISTANT: hi! how can I help?" in message
+    assert "[3] USER: what's 2+2?" in message
+    assert "[4] ASSISTANT: four" in message
+
+
+def test_memory_uses_one_based_indexing() -> None:
+    """The first message is ``[1]``, not ``[0]``."""
+    history = [UserMessage(content="first"), AssistantMessage(content="second")]
     state = AppState(
-        version=__version__,
-        session_id=full_id,
-        session_store=store,
-        history=[UserMessage(content="hi"), AssistantMessage(content="hello!")],
+        version=__version__, session_id="abc1234567deadbeefabc1234567deadbe", history=history
     )
 
     result = MemoryCommand().execute(_context(state))
     message = result.message or ""
 
-    # Full id is shown so the user can copy-paste it into /resume.
-    assert f"session:    {full_id}" in message
-    # Short id preview sits underneath as a quick visual cue.
-    assert "(short:   abc12345)" in message
-    assert "messages:   2" in message
-    assert "last user:  hi" in message
-    assert "last assistant: hello!" in message
-    assert "turns:" in message
+    assert "[1] USER: first" in message
+    assert "[0]" not in message
 
 
-def test_memory_with_empty_history_shows_no_messages_yet() -> None:
-    """An empty history shows ``(no messages yet)`` on both tail lines."""
+def test_memory_with_empty_history_shows_sentinel() -> None:
+    """An empty history shows ``(no messages in the active window)``."""
     state = AppState(
         version=__version__,
         session_id="abc1234567deadbeefabc1234567deadbe",
@@ -73,42 +81,12 @@ def test_memory_with_empty_history_shows_no_messages_yet() -> None:
     )
 
     result = MemoryCommand().execute(_context(state))
-    message = result.message or ""
 
-    assert "last user:  (no messages yet)" in message
-    assert "last assistant: (no messages yet)" in message
-
-
-def test_memory_truncates_long_content_to_60_chars() -> None:
-    """Long content ends with ``...`` (the truncation marker) after 60 chars."""
-    long_content = "x" * 80
-    state = AppState(
-        version=__version__,
-        session_id="abc1234567deadbeefabc1234567deadbe",
-        history=[UserMessage(content=long_content), AssistantMessage(content="ok")],
-    )
-
-    result = MemoryCommand().execute(_context(state))
-    message = result.message or ""
-
-    # The line should contain 60 'x' followed by the truncation marker.
-    # The marker is the ellipsis character '…'.
-    truncated_line = next(line for line in message.splitlines() if line.startswith("last user:"))
-    assert "x" * 60 in truncated_line
-    assert "…" in truncated_line
-
-
-def test_memory_without_session_id_returns_friendly() -> None:
-    """Empty ``session_id`` → friendly fallback (regardless of ``session_store``)."""
-    state = AppState(version=__version__, session_id="", session_store=None, history=[])
-
-    result = MemoryCommand().execute(_context(state))
-
-    assert "No active session" in (result.message or "")
+    assert result.message == "(no messages in the active window)"
 
 
 def test_memory_does_not_mutate_state() -> None:
-    """The command reads ``AppState`` but does not write back."""
+    """The command reads ``AppState.history`` but does not write back."""
     history = [UserMessage(content="hi"), AssistantMessage(content="hello")]
     state = AppState(
         version=__version__,
@@ -119,7 +97,6 @@ def test_memory_does_not_mutate_state() -> None:
     MemoryCommand().execute(_context(state))
 
     assert state.history == history
-    assert state.session_id == "abc1234567deadbeefabc1234567deadbe"
 
 
 def test_memory_returns_continue() -> None:
@@ -135,57 +112,75 @@ def test_memory_returns_continue() -> None:
     assert result.action == "continue"
 
 
-def test_memory_counts_user_assistant_pairs_as_turns() -> None:
-    """``turns:`` is the count of completed user/assistant pairs (half the messages)."""
-    history = [
-        UserMessage(content="a"),
-        AssistantMessage(content="A"),
-        UserMessage(content="b"),
-        AssistantMessage(content="B"),
-        UserMessage(content="c"),
-        AssistantMessage(content="C"),
-    ]
-    state = AppState(
-        version=__version__,
-        session_id="abc1234567deadbeefabc1234567deadbe",
-        history=history,
-    )
+def test_memory_works_on_base_message_instances_after_resume(tmp_path: Path) -> None:
+    """Base ``Message`` instances from ``SessionStore.read`` render correctly.
 
-    result = MemoryCommand().execute(_context(state))
-    message = result.message or ""
-
-    assert "turns:      3 / 10" in message
-
-
-def test_memory_finds_last_user_after_resume(tmp_path: Path) -> None:
-    """The ``last user:`` / ``last assistant:`` lines work on a resumed session.
-
-    ``SessionStore.read`` returns base ``Message`` instances (not the
-    ``UserMessage`` / ``AssistantMessage`` leaf subclasses). The
-    earlier strict ``isinstance`` check made the readout print
-    ``(no messages yet)`` on a freshly resumed session — a real
-    regression bug surfaced by the workflow test.
+    After ``/resume <id>``, ``app_state.history`` is populated with
+    base ``Message`` instances (the role discriminator returns them
+    from ``Message.model_validate_json``). The formatter filters on
+    ``msg.role`` so both leaf subclasses and base instances render
+    the same way.
     """
-    from simple_cli_coder_with_rag.application.session_store import SessionStore
-    from simple_cli_coder_with_rag.domain.messages import AssistantMessage, UserMessage
-
     store = SessionStore(tmp_path)
     sid = "abc1234567deadbeefabc1234567deadbe"
-    store.append(sid, UserMessage(content="first user line"))
-    store.append(sid, AssistantMessage(content="first assistant reply"))
-    store.append(sid, UserMessage(content="second user line"))
-    store.append(sid, AssistantMessage(content="second assistant reply"))
+    store.append(sid, UserMessage(content="resumed user line"))
+    store.append(sid, AssistantMessage(content="resumed assistant line"))
 
     state = AppState(
         version=__version__,
         session_id=sid,
         session_store=store,
-        history=store.read(sid),  # base Message instances — the bug trigger
+        history=store.read(sid),  # base Message instances
     )
 
     result = MemoryCommand().execute(_context(state))
     message = result.message or ""
 
-    assert "last user:  second user line" in message
-    assert "last assistant: second assistant reply" in message
-    assert "(no messages yet)" not in message
+    assert "[1] USER: resumed user line" in message
+    assert "[2] ASSISTANT: resumed assistant line" in message
+
+
+def test_memory_uses_shared_formatter() -> None:
+    """The command delegates to ``format_messages_for_display``."""
+    history = [UserMessage(content="x"), AssistantMessage(content="y")]
+
+    via_command = MemoryCommand().execute(
+        _context(AppState(version=__version__, session_id="x", history=history))
+    )
+    via_helper = format_messages_for_display(history)
+
+    assert via_command.message == via_helper
+
+
+def test_format_messages_helper_empty() -> None:
+    """The helper returns the sentinel string for an empty list."""
+    assert format_messages_for_display([]) == "(no messages in the active window)"
+
+
+def test_format_messages_helper_preserves_order() -> None:
+    """The helper renders messages in the order they appear in the list."""
+    history = [
+        UserMessage(content="a"),
+        AssistantMessage(content="b"),
+        UserMessage(content="c"),
+    ]
+
+    rendered = format_messages_for_display(history)
+
+    assert rendered == "[1] USER: a\n[2] ASSISTANT: b\n[3] USER: c"
+
+
+def test_memory_includes_role_in_uppercase() -> None:
+    """Roles are uppercase (``USER``, ``ASSISTANT``) — easy to scan in a terminal."""
+    history = [UserMessage(content="x"), AssistantMessage(content="y")]
+    state = AppState(
+        version=__version__, session_id="abc1234567deadbeefabc1234567deadbe", history=history
+    )
+
+    result = MemoryCommand().execute(_context(state))
+    message = result.message or ""
+
+    assert "USER" in message
+    assert "ASSISTANT" in message
+    assert "user:" not in message  # lowercase 'user:' must NOT appear
+    assert "assistant:" not in message  # lowercase 'assistant:' must NOT appear
