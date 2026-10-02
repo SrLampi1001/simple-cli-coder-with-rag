@@ -189,6 +189,12 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        # Empty values in ``.env`` (e.g. ``RETRIEVAL_TIMEOUT_SECONDS=``)
+        # are treated as "use the field default" instead of being parsed
+        # as empty strings and failing numeric validation. This makes
+        # ``.env.example`` round-trippable: a user who copies it to ``.env``
+        # and fills in only the API keys gets the documented defaults.
+        env_ignore_empty=True,
     )
 
     def model_post_init(self, __context: object) -> None:
