@@ -10,6 +10,9 @@ For the project goals, design patterns, and architectural overview, see
 versions, see [`docs/development-tools.md`](./docs/development-tools.md).
 For chunker configuration (`CHUNKER_STRATEGY` and how to add a new
 Strategy), see [`docs/chunker-strategy.md`](./docs/chunker-strategy.md).
+For RAG over local documents (the `/learn <path>` ingestion path and
+the LLM-decides retrieval contract), see
+[`docs/rag.md`](./docs/rag.md).
 
 ---
 
@@ -141,6 +144,17 @@ finished. You can start a new `/learn` only after the previous one
 finishes. Only the messages present when `/learn` was invoked are
 included; turns added while it runs belong to a later `/learn`.
 
+`/learn <path>` ingests a local document (PDF, Markdown, or plain text)
+into the active vector store. The file is loaded by the
+`ExtensionDispatchLoader`, chunked by `FixedSizeChunker.chunk_text`
+with the default 800-character / 15% overlap windows, embedded by
+`BAAI/bge-small-en-v1.5`, and upserted to the active vector store.
+The chunks carry `source` (the absolute file path) and `chunk_index`
+(zero-based per source) so the chat-time prompt can cite them as
+`[Source: <path>, chunk #N]`. See
+[`docs/rag.md`](./docs/rag.md) for the full pipeline diagram and
+the LLM-decides retrieval contract.
+
 ### Slash commands
 
 | Command   | Purpose                                                |
@@ -150,6 +164,9 @@ included; turns added while it runs belong to a later `/learn`.
 | `/clear`  | Clear the visible screen.                              |
 | `/version`| Print the package version.                             |
 | `/learn`  | Compact the session into a JSON file and index it in the vector store (runs in the background). |
+| `/learn <path>` | Ingest a local document (PDF, Markdown, or text) into the active vector store. |
+| `/vector-store` | Print the active vector store + available backends. |
+| `/vector-store <name>` | Switch the active vector store backend (`sqlite_vec` / `brute_force`). The Supabase adapter is forthcoming. |
 | `/connect <id>` | Add/validate an API key for a provider (`--no-validate` to skip the ping). |
 | `/connect --new <id> --adapter <a> --base-url <u> --model <m>` | Register a custom provider. |
 | `/providers` | List providers (id, adapter, base URL, model, key set?) and the active one. |
@@ -230,12 +247,22 @@ failure-mode catalogue.
 session JSON → compact (LLM) → chunks → embeddings → vector store
 ```
 
+`/learn <path>` turns local documents into searchable memory:
+
+```
+file path → load (PDF/MD/TXT) → chunk (800 chars / 15% overlap) → embed → vector store
+```
+
 On every chat turn, `RecallCoordinator` embeds your prompt, queries the
 vector store, drops trivial prompts (gate), and keeps only chunks above the
-similarity threshold. The hits are prepended to the system prompt so the LLM
-can reference your past work. Retrieval is wrapped in a timeout
-(`RETRIEVAL_TIMEOUT_SECONDS`, default 1.5s) and any failure degrades to
-"no memories" — a slow or broken store never blocks your prompt.
+similarity threshold. The hits are prepended to the system prompt with
+their `source` and `chunk_index`, and the LLM follows the four
+"LLM-decides" decision rules (use the context, fall back to general
+knowledge, refuse to invent, and cite the source). Retrieval is wrapped in
+a timeout (`RETRIEVAL_TIMEOUT_SECONDS`, default 1.5s) and any failure
+degrades to "no memories" — a slow or broken store never blocks your
+prompt. See [`docs/rag.md`](./docs/rag.md) for the full contract and
+worked examples.
 
 ### File tools
 
@@ -253,6 +280,7 @@ useful knobs:
 | Variable                  | Default                                 | Purpose                                                       |
 |---------------------------|-----------------------------------------|---------------------------------------------------------------|
 | `CHUNKER_STRATEGY`        | `fixed`                                 | `fixed` (sliding window) or `semantic` (one chunk per record).|
+| `VECTOR_STORE_STRATEGY`   | `sqlite`                                | Top-level vector store family (`sqlite` for v1; `supabase` is forthcoming). |
 | `VECTOR_STORE`            | `sqlite_vec`                            | `sqlite_vec` (persistent) or `brute_force` (in-memory).       |
 | `DB_PATH`                 | *(empty)*                               | Override the sqlite-vec DB location.                          |
 | `EMBEDDING_MODEL`         | `BAAI/bge-small-en-v1.5`                | fastembed model used for query/passage embeddings.            |

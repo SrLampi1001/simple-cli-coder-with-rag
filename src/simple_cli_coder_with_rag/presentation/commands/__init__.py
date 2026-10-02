@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from simple_cli_coder_with_rag.domain.file_editor import FileEditor
     from simple_cli_coder_with_rag.domain.llm_client import LLMClient
     from simple_cli_coder_with_rag.domain.messages import Message
+    from simple_cli_coder_with_rag.domain.vector_store import VectorStore
     from simple_cli_coder_with_rag.infrastructure.providers.registry import (
         ProviderRegistry,
     )
@@ -69,6 +70,17 @@ class AppState:
     short-circuits to "no memories" in that case. ``None`` is permitted
     only for tests that do not exercise the embedder surface.
 
+    ``vector_store`` (DO-13) is the live :class:`VectorStore` instance
+    currently driving retrieval. The composition root wires the first
+    instance; ``/vector-store`` swaps it in place. ``None`` is permitted
+    only for tests that do not exercise the store surface.
+
+    ``active_vector_store`` (DO-13) is a short, human-readable name for
+    the active backend (``"sqlite_vec"`` / ``"brute_force"`` / —
+    in a follow-up DO — ``"supabase"``). The REPL prints it on
+    ``/vector-store``; the tests assert against it. Default
+    ``"sqlite_vec"`` matches the historical default.
+
     ``persisted_through`` (DO-12) is the count of leading messages in
     ``history`` that have already been appended to the
     ``<session_id>.jsonl`` transcript. The REPL updates it after every
@@ -91,6 +103,8 @@ class AppState:
     provider_registry: ProviderRegistry | None = None
     settings: Settings | None = None
     persisted_through: int = 0
+    vector_store: VectorStore | None = None
+    active_vector_store: str = "sqlite_vec"
 
 
 @dataclass(frozen=True)

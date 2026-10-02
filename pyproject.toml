@@ -13,6 +13,7 @@ dependencies = [
     "prompt-toolkit>=3.0.53",
     "pydantic>=2.13",
     "pydantic-settings>=2.15",
+    "pypdf>=5.0,<6",
     "sqlite-vec>=0.1.9",
 ]
 
@@ -69,6 +70,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "sqlite_vec"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pypdf"
 ignore_missing_imports = true
 
 # Strict mode applies only to our own code.
@@ -166,3 +171,34 @@ source_modules = [
 ]
 forbidden_modules = ["sqlite_vec"]
 allow_indirect_imports = true
+
+# Regression guard (DO-13): ``pypdf`` is the PDF parser used by the
+# ``ExtensionDispatchLoader``. It must only appear in
+# ``infrastructure/document_loaders/extension_dispatch.py``. Upper-layer
+# modules reach the loader through the ``DocumentLoader`` Protocol,
+# never by importing ``pypdf`` directly. Indirect imports through the
+# loader are tolerated (composition root constructs the loader in
+# the ``/learn <path>`` path).
+[[tool.importlinter.contracts]]
+name = "pypdf-only-in-document-loaders"
+type = "forbidden"
+source_modules = [
+    "simple_cli_coder_with_rag.application",
+    "simple_cli_coder_with_rag.domain",
+    "simple_cli_coder_with_rag.presentation",
+]
+forbidden_modules = ["pypdf"]
+allow_indirect_imports = true
+
+# Regression guard (DO-13): the domain layer must not know about the
+# document loaders package (mirrors the existing
+# ``domain-no-providers`` rule). The ``DocumentLoader`` Protocol and
+# ``DocumentMetadata`` model live in ``domain``; the concrete loader
+# lives in ``infrastructure/document_loaders/`` and is reached only
+# from the application / presentation layers.
+[[tool.importlinter.contracts]]
+name = "domain-no-document-loaders"
+type = "forbidden"
+source_modules = ["simple_cli_coder_with_rag.domain"]
+forbidden_modules = ["simple_cli_coder_with_rag.infrastructure.document_loaders"]
+allow_indirect_imports = false

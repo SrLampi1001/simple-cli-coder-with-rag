@@ -2,7 +2,7 @@
 
 :class:`KnowledgeService` is the single seam between the REPL (presentation
 layer) and the LLM-backed ``LLMClient`` Protocol (domain layer). It
-exposes three operations:
+exposes four operations:
 
 * :meth:`KnowledgeService.chat` — chat turn (DO-03) extended in DO-10
   with a bounded tool-use loop. When the LLM returns
@@ -14,10 +14,20 @@ exposes three operations:
   via the compactor, chunk it via the Strategy-picked chunker, embed
   the chunks via the Strategy-picked embedder (DO-06), and persist them
   to the Strategy-picked vector store (DO-07). Returns the chunk count.
+* :meth:`KnowledgeService.learn_document` — DO-13. Read a local file
+  via the injected :class:`DocumentLoader`, chunk its text via the
+  :meth:`FixedSizeChunker.chunk_text` companion method, embed, and
+  upsert. The chunks carry ``Chunk.source`` and ``Chunk.chunk_index``
+  so the chat-time prompt can cite them.
 * :meth:`KnowledgeService.recall` — return relevant chunks via the
   injected :class:`RecallCoordinator` (DO-09). Returns ``[]`` when no
   coordinator is wired or when the coordinator signals a transient
-  failure (timeout, embedder still loading).
+  failure (timeout, embedder still loading). DO-13 changes the return
+  shape from ``list[str]`` to ``list[tuple[str, int, str]]``
+  (source, chunk_index, text).
+* :meth:`KnowledgeService.set_vector_store` — DO-13. Swap the vector
+  store (and the retriever wrapped around it) mid-session. Mirrors
+  the DO-11 :meth:`set_llm` pattern. Used by ``/vector-store``.
 
 Architectural notes:
 
@@ -60,6 +70,8 @@ Architectural notes:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from simple_cli_coder_with_rag.application.chunkers import (
     FixedSizeChunker,
     SemanticChunker,
@@ -72,6 +84,7 @@ from simple_cli_coder_with_rag.application.recall_coordinator import (
 from simple_cli_coder_with_rag.application.session_store import SessionStore
 from simple_cli_coder_with_rag.domain.chunk import Chunk
 from simple_cli_coder_with_rag.domain.chunker import Chunker
+from simple_cli_coder_with_rag.domain.document_loader import DocumentLoader
 from simple_cli_coder_with_rag.domain.embedder import Embedder
 from simple_cli_coder_with_rag.domain.file_editor import FileEditor
 from simple_cli_coder_with_rag.domain.llm_client import LLMClient
@@ -82,6 +95,7 @@ from simple_cli_coder_with_rag.domain.messages import (
     ToolResultMessage,
     ToolSpec,
 )
+from simple_cli_coder_with_rag.domain.retriever import Retriever
 from simple_cli_coder_with_rag.domain.vector_store import VectorStore
 
 # Tool schemas exposed to the LLM via ``complete_with_tools``. The shape is
@@ -188,16 +202,18 @@ class KnowledgeService:
         self,
         user_message: str,
         history: list[Message],
-        recalled: list[str] | None = None,
+        recalled: list[tuple[str, int, str]] | None = None,
     ) -> str:
         """Send ``user_message`` (with prior ``history``) to the LLM and return the reply.
 
-        ``recalled`` (DO-09) is a list of chunk texts retrieved from the
+        ``recalled`` (DO-09, updated DO-13) is a list of
+        ``(source, chunk_index, text)`` tuples retrieved from the
         vector store before this turn. ``None`` (the default) is
         equivalent to ``[]``. The prompt builder injects the recalled
-        texts as a ``SystemMessage`` at the head of the messages list
-        when non-empty, so the LLM sees the context **before** the
-        user's request.
+        chunks (with source attribution and the LLM-decides decision
+        rules) as a ``SystemMessage`` at the head of the messages
+        list when non-empty, so the LLM sees the context **before**
+        the user's request.
 
         Tool loop (DO-10): after the initial ``complete_with_tools``
         call, any non-empty ``tool_calls`` are executed via the injected
@@ -360,13 +376,20 @@ class KnowledgeService:
             self._vector_store.upsert(self.last_chunks, vectors)
         return len(self.last_chunks)
 
-    def recall(self, query: str, *, top_k: int | None = None) -> list[str]:
-        """Return up to ``top_k`` most relevant chunk texts for ``query``.
+    def recall(self, query: str, *, top_k: int | None = None) -> list[tuple[str, int, str]]:
+        """Return up to ``top_k`` most relevant chunks as ``(source, chunk_index, text)`` tuples.
 
         Delegates to the injected :class:`RecallCoordinator`. ``top_k``
         defaults to the coordinator's configured value (``None`` here →
         the coordinator's :attr:`top_k` is used). When no coordinator is
         wired, returns ``[]``.
+
+        DO-13 changes the return type from ``list[str]`` to
+        ``list[tuple[str, int, str]]`` so the chat-time prompt builder
+        can format chunks with their source attribution. Session
+        chunks (DO-04 / DO-09) have ``source == ""`` and
+        ``chunk_index == 0``; document chunks (DO-13) carry the
+        file path and a per-source index.
 
         The coordinator itself applies the trivial-prompt gate, the
         similarity threshold, and the ``RuntimeError`` /
@@ -377,6 +400,101 @@ class KnowledgeService:
             return []
         effective_top_k = top_k if top_k is not None else self._coordinator.top_k
         return self._coordinator.recall(query, top_k=effective_top_k)
+
+    def learn_document(
+        self,
+        path: Path,
+        *,
+        loader: DocumentLoader,
+    ) -> int:
+        """Load ``path``, chunk it, embed, and upsert (DO-13).
+
+        The companion entry point to :meth:`learn` for the
+        ``/learn <path>`` flow. Algorithm:
+
+        1. Load the file via the injected ``loader``. The loader
+           returns ``(text, DocumentMetadata)`` and propagates
+           :class:`UnsupportedDocumentError` / :class:`FileNotFoundError`
+           for ``LearnCommand`` to translate into friendly REPL
+           messages. The loader is **required** (no default) so the
+           application layer stays decoupled from the infrastructure
+           package — the composition root in ``cli.py`` wires the
+           default :class:`ExtensionDispatchLoader`.
+        2. Chunk the text via :meth:`FixedSizeChunker.chunk_text` with
+           ``source=metadata.source``. A ``TypeError`` is raised if
+           the configured chunker is not a
+           :class:`FixedSizeChunker` (the only chunker that
+           implements ``chunk_text`` in v1).
+        3. **If** an embedder + vector store are configured, warm the
+           embedder (block up to 60s on a cold cache) and upsert in
+           one batch. When either is ``None`` (legacy / test wirings)
+           the chunks are still produced and the method returns the
+           count; the caller is responsible for surfacing "no store"
+           if it cares.
+        4. Return ``len(chunks)`` so the caller (``LearnCommand``)
+           can format the chat-time message
+           (``learned N chunks from X (md, 1234 bytes)``).
+
+        ``UnsupportedDocumentError`` and :class:`FileNotFoundError`
+        propagate verbatim so ``LearnCommand`` can translate them
+        into friendly REPL messages — the service stays free of UI
+        concerns.
+        """
+        text, metadata = loader.load(path)
+        if not text:
+            # PDF with no extractable text — caller surfaces a friendly
+            # message ("PDF has no extractable text.").
+            self.last_chunks = []
+            return 0
+
+        chunker = self._chunker
+        # ``chunk_text`` is a method on ``FixedSizeChunker`` only;
+        # ``SemanticChunker`` does not implement it (its contract is
+        # one chunk per record, which does not apply to raw document
+        # text). The composition root wires a ``FixedSizeChunker`` for
+        # the document path; this assertion guards a misconfiguration.
+        if not isinstance(chunker, FixedSizeChunker):
+            raise TypeError(
+                f"learn_document requires a FixedSizeChunker (got {type(chunker).__name__})"
+            )
+
+        self.last_chunks = chunker.chunk_text(text, source=metadata.source)
+        if self._embedder is not None and self._vector_store is not None:
+            self._embedder.warmup(timeout=60.0)
+            vectors = self._embedder.embed_passages([c.text for c in self.last_chunks])
+            self._vector_store.upsert(self.last_chunks, vectors)
+        return len(self.last_chunks)
+
+    def set_vector_store(
+        self,
+        vector_store: VectorStore,
+        retriever: Retriever,
+    ) -> None:
+        """Swap the vector store (and its retriever) mid-session (DO-13).
+
+        Mirrors the DO-11 :meth:`set_llm` pattern. Used by
+        ``/vector-store`` when the user wants to flip between
+        backends. Everything else (chunker, embedder, editor, LLM)
+        is preserved — only the store + retriever change.
+
+        The new ``retriever`` is the **already-TimeoutRetriever-
+        wrapped** instance; the coordinator rebuilds itself against
+        it (mirroring the composition root's wiring). The gate,
+        ``top_k``, and similarity threshold are preserved so the
+        user's retrieval tuning survives the swap — only the
+        backend changes.
+
+        The chat-time ``recall`` flow uses the new store on the next
+        turn.
+        """
+        self._vector_store = vector_store
+        if self._coordinator is not None:
+            self._coordinator = RecallCoordinator(
+                retriever=retriever,
+                gate=self._coordinator.gate,
+                top_k=self._coordinator.top_k,
+                similarity_threshold=self._coordinator.similarity_threshold,
+            )
 
 
 def build_chunker(strategy: str) -> Chunker:

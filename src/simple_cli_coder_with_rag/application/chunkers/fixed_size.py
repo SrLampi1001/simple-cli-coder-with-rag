@@ -29,6 +29,13 @@ When the compacted session is empty (no summary, no errors, no
 decisions) the chunker returns ``[]`` rather than a single empty chunk,
 so the embedder never sees a zero-length input.
 
+DO-13 added :meth:`FixedSizeChunker.chunk_text` — the companion method
+for the ``/learn <path>`` ingestion path. It takes raw text + a
+``source`` (the document path) and produces chunks tagged with
+``Chunk.source`` and ``Chunk.chunk_index``. The two methods share the
+same internal :func:`_slide` helper, so the boundary behaviour is
+identical between the session path and the document path.
+
 Architectural note: this module imports from :mod:`domain` only (no
 infrastructure, no vendor SDKs). It is part of the application layer
 and may be replaced at the composition root in ``cli.py``.
@@ -44,7 +51,8 @@ from simple_cli_coder_with_rag.domain.compacted import CompactedSession
 # cannot drift away from the documented values.
 _Source = str
 
-# Documented source values. Mirrored in the SemanticChunker below.
+# Documented source values for the session path. Mirrored in the
+# SemanticChunker below.
 _SOURCE_SUMMARY = "summary"
 _SOURCE_ERROR = "error"
 _SOURCE_DECISION = "decision"
@@ -54,6 +62,17 @@ _SOURCE_DECISION = "decision"
 # degenerate single-character windows on the first iteration when
 # ``start == 0``).
 _MIN_WINDOW_CHARS = 16
+
+# DO-13 default chunk size for the document path. The OBJECTIVES tip
+# and the TL acceptance criterion are 800 tokens / 15% overlap; the
+# ``chunk_text`` method operates on characters (the chunker does not
+# have a tokenizer), and 800 tokens is roughly 3200 chars at 4
+# chars/token — we pin a more conservative 800 chars here so a
+# chunker call on a small Markdown file still produces a useful
+# sliding window. The DO-13 plan pinned 800 as the default; we
+# follow the plan and let the caller override per call.
+_DEFAULT_CHUNK_SIZE = 800
+_DEFAULT_OVERLAP = 120  # 15% of 800 — the 10-20% range from the TL criterion.
 
 
 class FixedSizeChunker:
@@ -119,6 +138,82 @@ class FixedSizeChunker:
                     )
                 )
         return chunks
+
+    def chunk_text(
+        self,
+        text: str,
+        *,
+        source: str,
+        chunk_size: int = _DEFAULT_CHUNK_SIZE,
+        overlap: int = _DEFAULT_OVERLAP,
+    ) -> list[Chunk]:
+        """Slide a window over raw ``text`` and return document chunks (DO-13).
+
+        Companion to :meth:`chunk` for the ``/learn <path>`` ingestion
+        path. Takes the raw text + the document's ``source`` (an
+        absolute file path) and produces chunks tagged with
+        ``Chunk.source`` and ``Chunk.chunk_index`` so the chat-time
+        prompt can cite them as ``[Source: <path>, chunk #N]``.
+
+        Parameters
+        ----------
+        text:
+            The raw text to chunk. UTF-8, with replacement glyphs
+            tolerated (the loader does the ``errors="replace"``
+            conversion; this method does not re-decode).
+        source:
+            The canonical origin of the document — typically the
+            absolute file path. Populated as ``Chunk.source`` on
+            every chunk and used as the dedup key by the vector
+            store (``ON CONFLICT (source, chunk_index)`` for the
+            future Supabase adapter).
+        chunk_size:
+            Width of the sliding window. Defaults to ``800`` chars
+            (the DO-13 plan default).
+        overlap:
+            Number of characters of overlap between consecutive
+            windows. Defaults to ``120`` (15% of ``chunk_size``,
+            the middle of the 10-20% range from the TL criterion).
+
+        Returns
+        -------
+        list[Chunk]
+            One chunk per window. ``Chunk.source`` is the same
+            ``source`` string on every chunk; ``Chunk.chunk_index``
+            counts from zero in document order. Empty input returns
+            ``[]`` (no empty chunk — the embedder never sees a
+            zero-length input).
+
+        Notes
+        -----
+        ``session_id`` is set to an empty string on each chunk —
+        document chunks are not session-scoped. The vector store
+        contract is unchanged: a doc chunk and a session chunk
+        live in the same table and are distinguished by
+        ``source`` (``""`` for session chunks, the file path for
+        document chunks).
+        """
+        if chunk_size <= 0:
+            raise ValueError(f"chunk_size must be > 0, got {chunk_size}")
+        if overlap < 0 or overlap >= chunk_size:
+            raise ValueError(
+                f"overlap must satisfy 0 <= overlap < chunk_size, "
+                f"got overlap={overlap} with chunk_size={chunk_size}"
+            )
+        if not text:
+            return []
+
+        windows = _slide(text, chunk_size, overlap)
+        return [
+            Chunk(
+                text=window_text,
+                source=source,
+                chunk_index=index,
+                metadata={"source": source, "index": index},
+                session_id="",
+            )
+            for index, window_text in enumerate(windows)
+        ]
 
 
 def _records_for(compacted: CompactedSession) -> list[tuple[_Source, str]]:

@@ -44,6 +44,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VectorStoreChoice = Literal["sqlite_vec", "brute_force"]
 
+# Top-level vector-store family pick (DO-13). The literal is
+# forward-compatible with ``"supabase"`` for a follow-up DO that
+# wires the Supabase + pgvector adapter; today, only ``"sqlite"`` is
+# actually implemented — selecting ``"supabase"`` raises
+# :class:`VectorStoreBackendUnavailable` with a friendly message.
+# The default is ``"sqlite"`` (the only currently-wired family).
+VectorStoreStrategy = Literal["sqlite", "supabase"]
+
 
 class Settings(BaseSettings):
     """Non-provider configuration loaded from environment / ``.env``."""
@@ -78,7 +86,22 @@ class Settings(BaseSettings):
     # :class:`VectorStoreBackendUnavailable` (host Python's SQLite build
     # cannot load extensions). Override via the ``VECTOR_STORE`` env
     # var to skip the sqlite-vec attempt altogether.
+    #
+    # DO-13 introduces a top-level ``vector_store_strategy`` that picks
+    # the **family** (sqlite vs. a future Supabase). When
+    # ``vector_store_strategy == "sqlite"`` (the only currently-wired
+    # value), this field is the sub-pick inside the family — it keeps
+    # the legacy ``VECTOR_STORE=sqlite_vec`` / ``VECTOR_STORE=brute_force``
+    # knob working unchanged.
     vector_store: VectorStoreChoice = "sqlite_vec"
+
+    # Top-level vector store family (DO-13). ``"sqlite"`` is the only
+    # currently-wired value — the Supabase adapter is a follow-up DO.
+    # Selecting ``"supabase"`` raises :class:`VectorStoreBackendUnavailable`
+    # with a friendly message; the composition root's existing
+    # fallback chain then drops to the local backend. Override via the
+    # ``VECTOR_STORE_STRATEGY`` env var.
+    vector_store_strategy: VectorStoreStrategy = "sqlite"
 
     # On-disk path for the ``sqlite-vec`` database. ``None`` (default)
     # means "use the platform-default data dir + ``db.sqlite``"; the
@@ -178,6 +201,7 @@ class Settings(BaseSettings):
         """Compact, key-free representation."""
         return (
             f"Settings(chunker_strategy={self.chunker_strategy!r}, "
+            f"vector_store_strategy={self.vector_store_strategy!r}, "
             f"vector_store={self.vector_store!r}, "
             f"embedding_model={self.embedding_model!r})"
         )
@@ -206,4 +230,9 @@ def resolve_db_path(settings: Settings) -> Path:
     return LocalPaths.data_dir() / "db.sqlite"
 
 
-__all__ = ["Settings", "VectorStoreChoice", "resolve_db_path"]
+__all__ = [
+    "Settings",
+    "VectorStoreChoice",
+    "VectorStoreStrategy",
+    "resolve_db_path",
+]

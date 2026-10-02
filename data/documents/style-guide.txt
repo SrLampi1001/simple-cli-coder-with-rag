@@ -1,0 +1,37 @@
+Project Style Guide
+===================
+
+This document lists the project's naming conventions and
+style rules. Keep new code consistent with the rest of the codebase.
+
+Naming conventions
+-----------------
+
+* Modules: lowercase, single word where possible
+  (``chunkers.py`` not ``chunkers_module.py``).
+* Classes: PascalCase, no underscores (``FixedSizeChunker``).
+* Functions and methods: snake_case (``chunk_text``).
+* Constants: UPPER_SNAKE_CASE (``_DEFAULT_CHUNK_SIZE``).
+* Private symbols: leading underscore (``_slide``).
+* Test files: ``test_<module>.py`` mirroring the source layout.
+
+Imports
+-------
+
+* Standard library first, then third-party, then project.
+* One import per line for long paths; grouped imports for short ones.
+* No wildcard imports; always import the names you need.
+
+Type hints
+----------
+
+* Use ``from __future__ import annotations`` in every module.
+* Prefer built-in generics (``list[int]``) over ``typing.List``.
+* Use ``Literal`` for closed sets; ``str`` for open ones.
+
+Docstrings
+----------
+
+* Every public class and function gets a one-paragraph summary.
+* Long blocks of behaviour belong in a module-level docstring.
+* Quote identifiers in backticks; quote code in double backticks.

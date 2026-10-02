@@ -15,10 +15,27 @@ operate on. The schema is intentionally narrow:
   in ``metadata``) because every chunk we ever produce belongs to one
   session, and the retriever + vector store filter by it constantly.
 
+DO-13 added two top-level fields that complement ``metadata``:
+
+* ``source`` — the canonical, **file-level** origin of the chunk. For
+  session-compacted chunks (DO-04) it stays empty (``""``); for
+  document chunks (``/learn <path>``, DO-13) it is the absolute path
+  of the ingested file. The chat-time system prompt uses it to
+  format citations (``[Source: docs/foo.md, chunk #2]``) and the
+  future Supabase adapter uses it as a dedup key.
+* ``chunk_index`` — the zero-based position of the chunk within its
+  ``source``. Together with ``source`` it forms the natural primary
+  key for the document chunk table (the
+  ``ON CONFLICT (source, chunk_index) DO UPDATE`` clause in
+  ``supabase_schema.sql``). It defaults to ``0`` so existing
+  session-compacted chunks round-trip unchanged.
+
 The chunker Strategy implementations (``FixedSizeChunker``,
 ``SemanticChunker``) are responsible for setting ``metadata`` and
 ``session_id`` correctly; the embedder and the store must not have to
-guess them.
+guess them. The :class:`DocumentMetadata`-aware code path
+(``/learn <path>``) is responsible for setting ``source`` and
+``chunk_index``.
 """
 
 from __future__ import annotations
@@ -30,7 +47,7 @@ from pydantic import BaseModel, Field
 
 
 class Chunk(BaseModel):
-    """A single retrievable unit of a compacted session.
+    """A single retrievable unit of a compacted session or loaded document.
 
     Mutable (``frozen=False``) because tests introspect and rewrite
     fields, but production code treats it as effectively immutable
@@ -41,6 +58,13 @@ class Chunk(BaseModel):
     text: str = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
     session_id: str
+    # DO-13 additions. Default values keep the pre-DO-13 call sites
+    # (``FixedSizeChunker.chunk(compacted)``,
+    # ``SemanticChunker.chunk(compacted)``) round-tripping without
+    # change — the compactor path produces session-level chunks with
+    # no file-level source.
+    source: str = ""
+    chunk_index: int = 0
 
 
 __all__ = ["Chunk"]

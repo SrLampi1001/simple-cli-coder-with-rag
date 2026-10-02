@@ -52,6 +52,9 @@ from simple_cli_coder_with_rag.domain.vector_store import (
     VectorStore,
     VectorStoreBackendUnavailable,
 )
+from simple_cli_coder_with_rag.infrastructure.document_loaders import (
+    ExtensionDispatchLoader,
+)
 from simple_cli_coder_with_rag.infrastructure.embedders import FastembedEmbedder
 from simple_cli_coder_with_rag.infrastructure.llm import build_llm_client
 from simple_cli_coder_with_rag.infrastructure.local_paths import LocalPaths
@@ -65,11 +68,10 @@ from simple_cli_coder_with_rag.infrastructure.retrievers.timeout_retriever impor
 )
 from simple_cli_coder_with_rag.infrastructure.settings import (
     Settings,
-    resolve_db_path,
 )
 from simple_cli_coder_with_rag.infrastructure.vector_stores import (
     NumpyBruteForceStore,
-    SqliteVecStore,
+    build_vector_store,
 )
 from simple_cli_coder_with_rag.presentation.commands import AppState
 from simple_cli_coder_with_rag.presentation.commands.chats import ChatsCommand
@@ -78,12 +80,18 @@ from simple_cli_coder_with_rag.presentation.commands.connect import ConnectComma
 from simple_cli_coder_with_rag.presentation.commands.context import ContextCommand
 from simple_cli_coder_with_rag.presentation.commands.exit import ExitCommand
 from simple_cli_coder_with_rag.presentation.commands.help import HelpCommand
-from simple_cli_coder_with_rag.presentation.commands.learn import LearnCommand
+from simple_cli_coder_with_rag.presentation.commands.learn import (
+    LearnCommand,
+    set_default_document_loader,
+)
 from simple_cli_coder_with_rag.presentation.commands.memory import MemoryCommand
 from simple_cli_coder_with_rag.presentation.commands.new import NewCommand
 from simple_cli_coder_with_rag.presentation.commands.provider import ProviderCommand
 from simple_cli_coder_with_rag.presentation.commands.providers import ProvidersCommand
 from simple_cli_coder_with_rag.presentation.commands.resume import ResumeCommand
+from simple_cli_coder_with_rag.presentation.commands.vector_store import (
+    VectorStoreCommand,
+)
 from simple_cli_coder_with_rag.presentation.commands.version import VersionCommand
 from simple_cli_coder_with_rag.presentation.registry import CommandRegistry
 from simple_cli_coder_with_rag.presentation.repl import Repl
@@ -118,6 +126,7 @@ def _build_registry() -> CommandRegistry:
     registry.register(NewCommand())
     registry.register(ContextCommand())
     registry.register(MemoryCommand())
+    registry.register(VectorStoreCommand())
     return registry
 
 
@@ -238,6 +247,12 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
     # sqlite-vec attempt, and an ``init`` failure (``VectorStoreBackendUnavailable``)
     # also falls back to ``NumpyBruteForceStore``. The fallback is logged
     # at INFO so the user can see it in ``tail -f`` of the log file.
+    #
+    # DO-13 routed this through :func:`build_vector_store` so the
+    # ``Settings.vector_store_strategy`` family pick (sqlite today,
+    # supabase in a follow-up DO) lives in a single composition
+    # point. The ``/vector-store`` command reaches for the same
+    # factory to swap the backend mid-session.
     vector_store = _build_vector_store(settings)
 
     # Retriever chain (DO-08). One ``RetrievalExecutor`` is built and shared
@@ -288,6 +303,14 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         editor=editor,
         editor_max_tool_rounds=settings.editor_max_tool_rounds,
     )
+    # DO-13: register the default document loader for the
+    # ``/learn <path>`` path. ``LearnCommand`` reaches for this
+    # module-level reference so the command does not need to take a
+    # ``loader`` parameter (which would couple it to the
+    # infrastructure package).
+    set_default_document_loader(ExtensionDispatchLoader())
+
+    active_backend = _active_backend_name(settings)
     app_state = AppState(
         version=__version__,
         llm=llm_client,
@@ -299,35 +322,51 @@ def _bootstrap_app_state() -> tuple[Settings | None, AppState | None, RetrievalE
         editor=editor,
         provider_registry=provider_registry,
         settings=settings,
+        vector_store=vector_store,
+        active_vector_store=active_backend,
     )
     return settings, app_state, retrieval_executor
 
 
 def _build_vector_store(settings: Settings) -> VectorStore:
-    """Build the configured vector store, with graceful fallback.
+    """Build the configured vector store, with graceful fallback (DO-13).
 
-    Order of attempts:
+    Routed through :func:`build_vector_store` — the single
+    composition point that honours
+    :class:`Settings.vector_store_strategy` (the family pick:
+    ``"sqlite"`` for v1, ``"supabase"`` is a follow-up DO) and the
+    sub-pick inside the family (legacy ``vector_store`` field:
+    ``"sqlite_vec"`` default or ``"brute_force"`` opt-in).
 
-    1. ``settings.vector_store == "brute_force"`` → use
-       :class:`NumpyBruteForceStore` directly (no sqlite-vec attempt).
-    2. ``settings.vector_store == "sqlite_vec"`` (default) → try
-       :class:`SqliteVecStore`. If its constructor raises
-       :class:`VectorStoreBackendUnavailable`, fall back to
-       :class:`NumpyBruteForceStore` and log a single INFO line so the
-       user can grep for it.
-
-    The fallback decision is logged through ``loguru`` to the file sink
-    (not stderr) — ``prompt_toolkit`` will own stderr during normal runs.
+    The fallback decision is logged through ``loguru`` to the file
+    sink (not stderr) — ``prompt_toolkit`` owns stderr during normal
+    runs. The ``Supabase`` branch raises
+    :class:`VectorStoreBackendUnavailable`; the REPL surfaces the
+    message via ``/vector-store`` and the user is back to the
+    sqlite-side choice.
     """
-    if settings.vector_store == "brute_force":
+    try:
+        return build_vector_store(settings)
+    except VectorStoreBackendUnavailable:
+        # Last-resort fallback so the REPL always has *some* store to
+        # talk to. ``brute_force`` is the in-memory numpy store; the
+        # user can ``/vector-store sqlite_vec`` once the underlying
+        # issue is fixed.
+        logger.warning("vector store unavailable, falling back to brute_force")
         return NumpyBruteForceStore()
 
-    db_path = resolve_db_path(settings)
-    try:
-        return SqliteVecStore(db_path=db_path)
-    except VectorStoreBackendUnavailable as exc:
-        logger.info("sqlite-vec unavailable, falling back to numpy: {}", exc)
-        return NumpyBruteForceStore()
+
+def _active_backend_name(settings: Settings) -> str:
+    """Return the user-facing name of the live vector store backend.
+
+    Mirrors the resolution order in
+    :func:`infrastructure.vector_stores.build_vector_store`. Used by
+    :class:`AppState.active_vector_store` so ``/vector-store`` prints
+    the right value on a fresh boot.
+    """
+    if settings.vector_store_strategy != "sqlite":
+        return settings.vector_store_strategy
+    return settings.vector_store
 
 
 class _NoProviderLLMClient:

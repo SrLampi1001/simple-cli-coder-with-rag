@@ -97,7 +97,7 @@ def test_long_prompt_calls_retriever_with_top_k() -> None:
     result = coordinator.recall("why does this fail for foo and bar too")
 
     assert retriever.calls == [("why does this fail for foo and bar too", 3)]
-    assert result == ["memory"]
+    assert result == [("", 0, "memory")]
 
 
 def test_similarity_threshold_filters_chunks() -> None:
@@ -115,7 +115,33 @@ def test_similarity_threshold_filters_chunks() -> None:
 
     result = coordinator.recall("a sufficiently long prompt to skip the gate")
 
-    assert result == ["strong"]
+    assert result == [("", 0, "strong")]
+
+
+def test_recall_passes_source_and_chunk_index() -> None:
+    """The (source, chunk_index, text) tuple carries the chunk's source metadata.
+
+    DO-13: document chunks carry a non-empty ``source`` (the file
+    path) and a per-source ``chunk_index``. The coordinator passes
+    them through verbatim.
+    """
+    c1 = Chunk(text="alpha", session_id="", source="docs/foo.md", chunk_index=0)
+    c2 = Chunk(text="beta", session_id="", source="docs/foo.md", chunk_index=1)
+    retriever = _RecorderRetriever(results=[RetrievedChunk(c1, 0.9), RetrievedChunk(c2, 0.8)])
+    gate = TrivialGate()
+    coordinator = RecallCoordinator(
+        retriever=retriever,  # type: ignore[arg-type]
+        gate=gate,
+        top_k=3,
+        similarity_threshold=0.5,
+    )
+
+    result = coordinator.recall("a sufficiently long prompt to skip the gate")
+
+    assert result == [
+        ("docs/foo.md", 0, "alpha"),
+        ("docs/foo.md", 1, "beta"),
+    ]
 
 
 def test_embedder_not_ready_returns_empty() -> None:
@@ -266,7 +292,11 @@ def test_recall_latency_under_threshold() -> None:
         result = coordinator.recall("why does ModuleNotFoundError happen for foo")
         elapsed = time.perf_counter() - start
 
-        assert result == ["memory a", "memory b", "memory c"]
+        assert result == [
+            ("", 0, "memory a"),
+            ("", 0, "memory b"),
+            ("", 0, "memory c"),
+        ]
         assert elapsed < 0.1, f"recall latency {elapsed * 1000:.1f} ms exceeded 100 ms budget"
     finally:
         executor.shutdown()

@@ -1,0 +1,125 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 2
+/Kids [ 6 0 R 8 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+5 0 obj
+<<
+/Font <<
+/F1 4 0 R
+>>
+>>
+endobj
+6 0 obj
+<<
+/Type /Page
+/Resources 5 0 R
+/MediaBox [ 0.0 0.0 595 842 ]
+/Parent 2 0 R
+/Contents 7 0 R
+>>
+endobj
+7 0 obj
+<<
+/Length 456
+>>
+stream
+BT
+/F1 24 Tf
+72 770 Td
+(API Reference) Tj
+0 -30 Td
+/F1 12 Tf
+(This document describes the public API of the cache layer.) Tj
+0 -20 Td
+(All methods are safe to call from multiple goroutines.) Tj
+0 -20 Td
+(The cache exposes a single Cache type with a small set of methods:) Tj
+0 -20 Td
+(  Get(key string) (Value, bool)) Tj
+0 -20 Td
+(  Set(key string, value Value, ttl time.Duration)) Tj
+0 -20 Td
+(  Delete(key string) bool) Tj
+0 -20 Td
+(  Purge() int) Tj
+ET
+
+endstream
+endobj
+8 0 obj
+<<
+/Type /Page
+/Resources 5 0 R
+/MediaBox [ 0.0 0.0 595 842 ]
+/Parent 2 0 R
+/Contents 9 0 R
+>>
+endobj
+9 0 obj
+<<
+/Length 285
+>>
+stream
+BT
+/F1 24 Tf
+72 770 Td
+(Errors) Tj
+0 -30 Td
+/F1 12 Tf
+(All cache errors are returned as sentinels in the second return value.) Tj
+0 -20 Td
+(Use errors.Is to compare against the sentinels:) Tj
+0 -20 Td
+(  ErrCacheMiss) Tj
+0 -20 Td
+(  ErrCacheClosed) Tj
+0 -20 Td
+(  ErrKeyTooLong) Tj
+ET
+
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000119 00000 n 
+0000000168 00000 n 
+0000000238 00000 n 
+0000000281 00000 n 
+0000000391 00000 n 
+0000000898 00000 n 
+0000001008 00000 n 
+trailer
+<<
+/Size 10
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+1344
+%%EOF

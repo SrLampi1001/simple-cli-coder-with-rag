@@ -82,8 +82,20 @@ class RecallCoordinator:
         """Return the configured similarity threshold."""
         return self._similarity_threshold
 
-    def recall(self, prompt: str, *, top_k: int | None = None) -> list[str]:
-        """Return up to ``top_k`` (or :attr:`top_k`) chunk texts relevant to ``prompt``.
+    @property
+    def gate(self) -> TrivialGate:
+        """Return the configured :class:`TrivialGate` (DO-13).
+
+        Exposed so :meth:`KnowledgeService.set_vector_store` can
+        rebuild a new coordinator around a new retriever while
+        preserving the gate. The gate is a configuration choice, not
+        a backend detail — swapping the vector store must not reset
+        it.
+        """
+        return self._gate
+
+    def recall(self, prompt: str, *, top_k: int | None = None) -> list[tuple[str, int, str]]:
+        """Return up to ``top_k`` (or :attr:`top_k`) relevant chunks as 3-tuples.
 
         Behaviour:
 
@@ -91,8 +103,17 @@ class RecallCoordinator:
         * Retriever raises ``RuntimeError`` (e.g. ``EmbedderNotReady``)
           or ``TimeoutError`` → return ``[]`` and log at ``DEBUG``.
         * Otherwise → filter results by ``similarity >=
-          self._similarity_threshold`` and return ``[r.chunk.text for r
+          self._similarity_threshold`` and return
+          ``[(r.chunk.source, r.chunk.chunk_index, r.chunk.text) for r
           in filtered]``.
+
+        The return type changed in DO-13 from ``list[str]`` to
+        ``list[tuple[str, int, str]]`` so the chat-time prompt
+        builder can format chunks with their source attribution
+        (``[Source: <path>, chunk #N]``). The three-tuple shape is
+        the same for session chunks (where ``source == ""`` and
+        ``chunk_index == 0``) and document chunks (where both are
+        populated by the chunker).
 
         ``top_k`` defaults to :attr:`top_k` — the constructor value.
         Tests pass an override to exercise the ``top_k`` plumbing
@@ -117,7 +138,11 @@ class RecallCoordinator:
             logger.debug("recall aborted: retriever raised TimeoutError: {}", exc)
             return []
 
-        return [r.chunk.text for r in results if r.similarity >= self._similarity_threshold]
+        return [
+            (r.chunk.source, r.chunk.chunk_index, r.chunk.text)
+            for r in results
+            if r.similarity >= self._similarity_threshold
+        ]
 
 
 __all__ = ["RecallCoordinator"]
